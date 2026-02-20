@@ -10,9 +10,20 @@ export default defineConfig({
       plugins: [tailwindcss()],
     },
   },
+  optimizeDeps: {
+    include: ['fabric', 'paper', 'victor'],
+  },
+  build: {
+    commonjsOptions: {
+      transformMixedEsModules: true,
+    },
+  },
+  server: {
+    port: 3004,
+  },
   test: {
     globals: true,
     environment: 'jsdom',
     setupFiles: './src/test/setup.ts',
   },
-})
+} as any)
