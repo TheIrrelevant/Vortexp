@@ -1,0 +1,250 @@
+// src/canvas/FabricVectorNetwork.ts
+
+import { fabric } from './fabricSetup';
+import type { VectorNetwork, Vertex, Segment, Point } from '../types/vectorNetwork';
+import { VectorNetworkEngine } from '../vector/VectorNetworkEngine';
+
+/**
+ * Fabric.js Vector Network Object
+ * 
+ * Fabric.js'in native path objesi yerine Vector Network kullanıyoruz.
+ * Bu sayede Figma benzeri çift yönlü path editing yapabiliriz.
+ */
+export class FabricVectorNetwork extends (fabric.Group as any) {
+  private network: VectorNetwork;
+  private engine: VectorNetworkEngine;
+  private pathObject: any | null = null;
+  private controlPointsGroup: any | null = null;
+  private isEditing: boolean = false;
+
+  constructor(network: VectorNetwork) {
+    super([]);
+
+    this.network = network;
+    this.engine = new VectorNetworkEngine();
+    this.engine.loadNetwork(network);
+
+    this.render();
+  }
+
+  /**
+   * Vector Network'ü Fabric.js path'e dönüştür ve render et
+   */
+  private render(): void {
+    // Önce eski objeleri temizle
+    this.removeAll();
+
+    // Path'i oluştur
+    const pathData = this.engine.toSVGPath();
+    
+    if (pathData) {
+      this.pathObject = new (fabric as any).Path(pathData, {
+        fill: this.network.fill,
+        stroke: this.network.stroke,
+        strokeWidth: this.network.strokeWidth,
+        opacity: this.network.opacity,
+        originX: 'left',
+        originY: 'top'
+      });
+
+      this.addWithUpdate(this.pathObject);
+    }
+
+    // Edit mode'da kontrol noktalarını göster
+    if (this.isEditing) {
+      this.renderControlPoints();
+    }
+  }
+
+  /**
+   * Kontrol noktalarını ve vertex'leri render et
+   */
+  private renderControlPoints(): void {
+    const objects: any[] = [];
+
+    this.network.vertices.forEach(vertex => {
+      // Vertex noktası
+      const vertexCircle = new (fabric as any).Circle({
+        left: vertex.x - 6,
+        top: vertex.y - 6,
+        radius: 6,
+        fill: '#FFFFFF',
+        stroke: '#3B82F6',
+        strokeWidth: 2,
+        selectable: false,
+        evented: true,
+        data: { type: 'vertex', id: vertex.id }
+      });
+      objects.push(vertexCircle);
+
+      // Kontrol noktası çizgileri ve handle'ları
+      if (vertex.controlIn) {
+        const lineIn = new (fabric as any).Line(
+          [vertex.x, vertex.y, vertex.controlIn.x, vertex.controlIn.y],
+          {
+            stroke: 'rgba(59, 130, 246, 0.5)',
+            strokeWidth: 1,
+            selectable: false,
+            evented: false
+          }
+        );
+        objects.push(lineIn);
+
+        const cpIn = new (fabric as any).Circle({
+          left: vertex.controlIn.x - 4,
+          top: vertex.controlIn.y - 4,
+          radius: 4,
+          fill: '#3B82F6',
+          stroke: '#FFFFFF',
+          strokeWidth: 1,
+          selectable: false,
+          evented: true,
+          data: { type: 'controlPoint', vertexId: vertex.id, controlType: 'in' }
+        });
+        objects.push(cpIn);
+      }
+
+      if (vertex.controlOut) {
+        const lineOut = new (fabric as any).Line(
+          [vertex.x, vertex.y, vertex.controlOut.x, vertex.controlOut.y],
+          {
+            stroke: 'rgba(59, 130, 246, 0.5)',
+            strokeWidth: 1,
+            selectable: false,
+            evented: false
+          }
+        );
+        objects.push(lineOut);
+
+        const cpOut = new (fabric as any).Circle({
+          left: vertex.controlOut.x - 4,
+          top: vertex.controlOut.y - 4,
+          radius: 4,
+          fill: '#3B82F6',
+          stroke: '#FFFFFF',
+          strokeWidth: 1,
+          selectable: false,
+          evented: true,
+          data: { type: 'controlPoint', vertexId: vertex.id, controlType: 'out' }
+        });
+        objects.push(cpOut);
+      }
+    });
+
+    this.controlPointsGroup = new (fabric as any).Group(objects, {
+      selectable: false,
+      evented: true
+    });
+
+    this.addWithUpdate(this.controlPointsGroup);
+  }
+
+  /**
+   * Edit mode'u aç/kapat
+   */
+  setEditingMode(editing: boolean): void {
+    this.isEditing = editing;
+    this.render();
+  }
+
+  /**
+   * Vertex ekle
+   */
+  addVertex(x: number, y: number, type: 'STRAIGHT' | 'MIRRORED' = 'MIRRORED'): Vertex {
+    const vertex = this.engine.addVertex(x, y, type);
+    this.syncNetworkFromEngine();
+    this.render();
+    return vertex;
+  }
+
+  /**
+   * Segment ekle
+   */
+  addSegment(startVertexId: string, endVertexId: string): Segment | null {
+    const segment = this.engine.addSegment(startVertexId, endVertexId);
+    if (segment) {
+      this.syncNetworkFromEngine();
+      this.render();
+    }
+    return segment;
+  }
+
+  /**
+   * Vertex güncelle
+   */
+  updateVertex(vertexId: string, updates: Partial<Vertex>): void {
+    this.engine.updateVertex(vertexId, updates);
+    this.syncNetworkFromEngine();
+    this.render();
+  }
+
+  /**
+   * Vertex sil
+   */
+  deleteVertex(vertexId: string): void {
+    this.engine.deleteVertex(vertexId);
+    this.syncNetworkFromEngine();
+    this.render();
+  }
+
+  /**
+   * Kontrol noktası taşı
+   */
+  moveControlPoint(vertexId: string, type: 'in' | 'out', position: Point): void {
+    this.engine.moveControlPoint(vertexId, type, position);
+    this.syncNetworkFromEngine();
+    this.render();
+  }
+
+  /**
+   * Path'i kapat
+   */
+  closePath(): void {
+    this.engine.closePath();
+    this.engine.updateRegions();
+    this.syncNetworkFromEngine();
+    this.render();
+  }
+
+  /**
+   * Segment üzerinde nokta ekle
+   */
+  addPointOnSegment(segmentId: string, t: number): Vertex | null {
+    const vertex = this.engine.addPointOnSegment(segmentId, t);
+    if (vertex) {
+      this.syncNetworkFromEngine();
+      this.render();
+    }
+    return vertex;
+  }
+
+  /**
+   * Network'ü al
+   */
+  getNetwork(): VectorNetwork {
+    return this.network;
+  }
+
+  /**
+   * Network'ü güncelle
+   */
+  setNetwork(network: VectorNetwork): void {
+    this.network = network;
+    this.engine.loadNetwork(network);
+    this.render();
+  }
+
+  /**
+   * SVG path data al
+   */
+  getPathData(): string {
+    return this.engine.toSVGPath();
+  }
+
+  private syncNetworkFromEngine(): void {
+    this.network = this.engine.getNetwork();
+  }
+}
+
+// Fabric.js'e özel obje olarak kaydet
+(fabric as any).FabricVectorNetwork = FabricVectorNetwork;

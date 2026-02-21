@@ -1,215 +1,154 @@
-// src/App.tsx
 import { useEffect, useRef, useState } from 'react';
-import { canvasEngine } from './canvas/CanvasEngine';
-import { useCanvasStore } from './store/canvasStore';
-import type { ToolType } from './types/canvas';
+import { fullCanvasEngine } from './canvas/FullCanvasEngine';
+import { useCanvasStore } from './store/fullCanvasStore';
+import { Toolbar } from './components/Toolbar';
+import { LayersPanel } from './components/LayersPanel';
+import { PropertiesPanel } from './components/PropertiesPanel';
+import { BooleanPanel } from './components/BooleanPanel';
+import { AutoLayoutPanel } from './components/AutoLayoutPanel';
+import { VariablesPanel } from './components/VariablesPanel';
 import './App.css';
-
-const tools: { id: ToolType; label: string; icon: string }[] = [
-  { id: 'select', label: 'Select', icon: '↖' },
-  { id: 'rectangle', label: 'Rectangle', icon: '▭' },
-  { id: 'ellipse', label: 'Ellipse', icon: '○' },
-  { id: 'line', label: 'Line', icon: '/' },
-  { id: 'pen', label: 'Pen', icon: '✎' }
-];
 
 function App() {
   const canvasRef = useRef<HTMLDivElement>(null);
   const [canvasInitialized, setCanvasInitialized] = useState(false);
+  const [rightPanelTab, setRightPanelTab] = useState<'properties' | 'boolean' | 'autolayout' | 'variables'>('properties');
   
-  const {
-    currentTool,
-    setCurrentTool,
-    selectedId,
-    shapes,
-    toolConfig,
-    updateToolConfig
-  } = useCanvasStore();
+  const { zoom, tool, shapes, selectedIds } = useCanvasStore();
 
   useEffect(() => {
     if (canvasRef.current && !canvasInitialized) {
-      // Initialize with responsive dimensions
-      canvasEngine.initialize('canvas-container');
+      fullCanvasEngine.initialize('canvas-container');
       setCanvasInitialized(true);
     }
 
     return () => {
-      canvasEngine.destroy();
+      fullCanvasEngine.destroy();
     };
   }, []);
 
-  const handleExportSVG = () => {
-    const svg = canvasEngine.exportToSVG();
-    const blob = new Blob([svg], { type: 'image/svg+xml' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'vortexp-drawing.svg';
-    link.click();
-    URL.revokeObjectURL(url);
-  };
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      
+      switch (e.key.toLowerCase()) {
+        case 'v': useCanvasStore.getState().setTool('select'); break;
+        case 'h': useCanvasStore.getState().setTool('hand'); break;
+        case 'r': useCanvasStore.getState().setTool('rectangle'); break;
+        case 'o': useCanvasStore.getState().setTool('ellipse'); break;
+        case 'l': useCanvasStore.getState().setTool('line'); break;
+        case 'a': useCanvasStore.getState().setTool('arrow'); break;
+        case 'p': useCanvasStore.getState().setTool('pen'); break;
+        case 't': useCanvasStore.getState().setTool('text'); break;
+        case 'delete':
+        case 'backspace':
+          fullCanvasEngine.deleteSelected();
+          break;
+        case 'g':
+          if (e.ctrlKey || e.metaKey) {
+            e.preventDefault();
+            if (e.shiftKey) {
+              fullCanvasEngine.ungroup();
+            } else {
+              fullCanvasEngine.group();
+            }
+          }
+          break;
+        case '=':
+        case '+':
+          if (e.ctrlKey || e.metaKey) {
+            e.preventDefault();
+            fullCanvasEngine.zoomIn();
+          }
+          break;
+        case '-':
+          if (e.ctrlKey || e.metaKey) {
+            e.preventDefault();
+            fullCanvasEngine.zoomOut();
+          }
+          break;
+        case '0':
+          if (e.ctrlKey || e.metaKey) {
+            e.preventDefault();
+            fullCanvasEngine.resetZoom();
+          }
+          break;
+      }
+    };
 
-  const handleExportPNG = () => {
-    const png = canvasEngine.exportToPNG();
-    const link = document.createElement('a');
-    link.href = png;
-    link.download = 'vortexp-drawing.png';
-    link.click();
-  };
-
-  const selectedShape = shapes.find((s) => s.id === selectedId);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   return (
     <div className="app">
-      {/* Header */}
       <header className="header">
         <div className="logo">
           <h1>Vortexp</h1>
           <span>Vector Canvas</span>
         </div>
-        <div className="actions">
-          <button onClick={handleExportSVG} className="btn-secondary">
-            Export SVG
-          </button>
-          <button onClick={handleExportPNG} className="btn-secondary">
-            Export PNG
-          </button>
-          <button onClick={() => canvasEngine.clear()} className="btn-danger">
-            Clear
-          </button>
+        <div className="header-center">
+          <span className="tool-indicator">Tool: {tool}</span>
+          <span className="zoom-indicator">{Math.round(zoom * 100)}%</span>
+        </div>
+        <div className="header-actions">
+          <button onClick={() => fullCanvasEngine.zoomIn()} className="btn-icon" title="Zoom In">+</button>
+          <button onClick={() => fullCanvasEngine.zoomOut()} className="btn-icon" title="Zoom Out">−</button>
+          <button onClick={() => fullCanvasEngine.resetZoom()} className="btn-icon" title="Reset Zoom">⟲</button>
         </div>
       </header>
 
-      {/* Main Content */}
       <div className="main">
-        {/* Left Toolbar */}
-        <aside className="toolbar">
-          <div className="tool-section">
-            <h3>Tools</h3>
-            <div className="tools-grid">
-              {tools.map((tool) => (
-                <button
-                  key={tool.id}
-                  className={`tool-btn ${currentTool === tool.id ? 'active' : ''}`}
-                  onClick={() => setCurrentTool(tool.id)}
-                  title={tool.label}
-                >
-                  <span className="tool-icon">{tool.icon}</span>
-                  <span className="tool-label">{tool.label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="tool-section">
-            <h3>Properties</h3>
-            
-            <div className="property-group">
-              <label>Fill Color</label>
-              <div className="color-input">
-                <input
-                  type="color"
-                  value={toolConfig.fill}
-                  onChange={(e) => updateToolConfig({ fill: e.target.value })}
-                />
-                <span>{toolConfig.fill}</span>
-              </div>
-            </div>
-
-            <div className="property-group">
-              <label>Stroke Color</label>
-              <div className="color-input">
-                <input
-                  type="color"
-                  value={toolConfig.stroke}
-                  onChange={(e) => updateToolConfig({ stroke: e.target.value })}
-                />
-                <span>{toolConfig.stroke}</span>
-              </div>
-            </div>
-
-            <div className="property-group">
-              <label>Stroke Width</label>
-              <div className="range-input">
-                <input
-                  type="range"
-                  min="1"
-                  max="20"
-                  value={toolConfig.strokeWidth}
-                  onChange={(e) => updateToolConfig({ strokeWidth: Number(e.target.value) })}
-                />
-                <span>{toolConfig.strokeWidth}px</span>
-              </div>
-            </div>
-
-            <div className="property-group">
-              <label>Opacity</label>
-              <div className="range-input">
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={toolConfig.opacity * 100}
-                  onChange={(e) => updateToolConfig({ opacity: Number(e.target.value) / 100 })}
-                />
-                <span>{Math.round(toolConfig.opacity * 100)}%</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Selected Shape Properties */}
-          {selectedShape && (
-            <div className="tool-section">
-              <h3>Selected Shape</h3>
-              <div className="property-group">
-                <label>Type</label>
-                <span className="info-value">{selectedShape.type}</span>
-              </div>
-              <div className="property-group">
-                <label>Position</label>
-                <span className="info-value">
-                  X: {Math.round(selectedShape.x)}, Y: {Math.round(selectedShape.y)}
-                </span>
-              </div>
-              {selectedShape.type === 'rectangle' && (
-                <>
-                  <div className="property-group">
-                    <label>Size</label>
-                    <span className="info-value">
-                      {Math.round(selectedShape.width)} × {Math.round(selectedShape.height)}
-                    </span>
-                  </div>
-                </>
-              )}
-              {selectedShape.type === 'ellipse' && (
-                <>
-                  <div className="property-group">
-                    <label>Radius</label>
-                    <span className="info-value">
-                      RX: {Math.round(selectedShape.rx)}, RY: {Math.round(selectedShape.ry)}
-                    </span>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
+        <aside className="left-sidebar">
+          <Toolbar />
+          <LayersPanel />
         </aside>
 
-        {/* Canvas Area */}
         <main className="canvas-area">
-          <div 
-            id="canvas-container" 
-            ref={canvasRef}
-            className="canvas-container"
-          />
+          <div id="canvas-container" ref={canvasRef} className="canvas-container" />
           
-          {/* Info Bar */}
           <div className="info-bar">
-            <span>Tool: {currentTool}</span>
             <span>Shapes: {shapes.length}</span>
-            <span>Selected: {selectedId ? 'Yes' : 'No'}</span>
+            <span>Selected: {selectedIds.length}</span>
+            <span>Shortcuts: V R O L A P T | Ctrl+G Group | Del Delete</span>
           </div>
         </main>
+
+        <aside className="right-sidebar">
+          <div className="panel-tabs">
+            <button 
+              className={rightPanelTab === 'properties' ? 'active' : ''} 
+              onClick={() => setRightPanelTab('properties')}
+            >
+              Props
+            </button>
+            <button 
+              className={rightPanelTab === 'boolean' ? 'active' : ''} 
+              onClick={() => setRightPanelTab('boolean')}
+            >
+              Bool
+            </button>
+            <button 
+              className={rightPanelTab === 'autolayout' ? 'active' : ''} 
+              onClick={() => setRightPanelTab('autolayout')}
+            >
+              Layout
+            </button>
+            <button 
+              className={rightPanelTab === 'variables' ? 'active' : ''} 
+              onClick={() => setRightPanelTab('variables')}
+            >
+              Vars
+            </button>
+          </div>
+          
+          <div className="panel-content">
+            {rightPanelTab === 'properties' && <PropertiesPanel />}
+            {rightPanelTab === 'boolean' && <BooleanPanel />}
+            {rightPanelTab === 'autolayout' && <AutoLayoutPanel />}
+            {rightPanelTab === 'variables' && <VariablesPanel />}
+          </div>
+        </aside>
       </div>
     </div>
   );

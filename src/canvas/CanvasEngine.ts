@@ -2,7 +2,10 @@
 import { fabric, getCanvasDimensions, createGridPattern } from './fabricSetup';
 import { nanoid } from 'nanoid';
 import { useCanvasStore } from '../store/canvasStore';
-import type { ToolType, Point, Shape, ShapeStyle } from '../types/canvas';
+import type { Point, Shape, ShapeStyle, ToolType } from '../types/canvas';
+import type { Vertex } from '../types/vectorNetwork';
+import { VectorNetworkEngine } from '../vector/VectorNetworkEngine';
+import { FabricVectorNetwork } from './FabricVectorNetwork';
 
 export class CanvasEngine {
   private canvas: any | null = null;
@@ -11,6 +14,12 @@ export class CanvasEngine {
   private startPoint: Point = { x: 0, y: 0 };
   private currentObject: any | null = null;
   private currentTool: ToolType = 'select';
+  
+  // Pen Tool state
+  private currentVectorNetwork: FabricVectorNetwork | null = null;
+  private vectorEngine!: VectorNetworkEngine;
+  private lastVertexId: string | null = null;
+  private isPenDrawing = false;
 
   initialize(containerId: string): void {
     const container = document.getElementById(containerId);
@@ -20,6 +29,9 @@ export class CanvasEngine {
     }
 
     this.container = container;
+    
+    // Initialize Vector Engine for Pen Tool
+    this.vectorEngine = new VectorNetworkEngine();
     
     // Container boyutuna göre canvas boyutu hesapla
     const { width, height } = getCanvasDimensions(containerId);
@@ -159,6 +171,10 @@ export class CanvasEngine {
           }
         );
         break;
+
+      case 'pen':
+        this.handlePenMouseDown({ x: pointer.x, y: pointer.y });
+        return; // Pen tool için farklı işlem
     }
 
     if (this.currentObject) {
@@ -168,9 +184,15 @@ export class CanvasEngine {
   }
 
   private handleMouseMove(e: any): void {
-    if (!this.isDrawing || !this.currentObject) return;
-
     const pointer = this.canvas!.getPointer(e.e);
+
+    // Pen Tool özel işlem
+    if (this.currentTool === 'pen') {
+      this.handlePenMouseMove({ x: pointer.x, y: pointer.y }, e);
+      return;
+    }
+
+    if (!this.isDrawing || !this.currentObject) return;
 
     switch (this.currentTool) {
       case 'rectangle':
@@ -206,6 +228,12 @@ export class CanvasEngine {
   }
 
   private handleMouseUp(): void {
+    // Pen Tool özel işlem
+    if (this.currentTool === 'pen') {
+      this.handlePenMouseUp();
+      return;
+    }
+
     if (!this.isDrawing || !this.currentObject) return;
 
     this.isDrawing = false;
@@ -373,6 +401,120 @@ export class CanvasEngine {
     const zoom = useCanvasStore.getState().zoom;
     this.canvas.setZoom(zoom);
     this.canvas.renderAll();
+  }
+
+  // ==================== PEN TOOL METHODS ====================
+
+  private handlePenMouseDown(pointer: Point): void {
+    // Yeni vector network başlat
+    if (!this.currentVectorNetwork) {
+      const network = this.vectorEngine.createEmptyNetwork();
+      network.fill = useCanvasStore.getState().toolConfig.fill;
+      network.stroke = useCanvasStore.getState().toolConfig.stroke;
+      network.strokeWidth = useCanvasStore.getState().toolConfig.strokeWidth;
+      this.vectorEngine.loadNetwork(network);
+
+      this.currentVectorNetwork = new FabricVectorNetwork(network);
+      this.canvas.add(this.currentVectorNetwork);
+    }
+
+    // Vertex ekle
+    const vertex = this.vectorEngine.addVertex(
+      pointer.x,
+      pointer.y,
+      'MIRRORED'
+    );
+
+    // Önceki vertex'e bağla
+    if (this.lastVertexId) {
+      this.vectorEngine.addSegment(this.lastVertexId, vertex.id);
+    }
+
+    this.lastVertexId = vertex.id;
+    this.isPenDrawing = true;
+
+    // Vector network'ü güncelle
+    this.currentVectorNetwork.setNetwork(this.vectorEngine.getNetwork());
+    this.canvas.renderAll();
+  }
+
+  private handlePenMouseMove(pointer: Point, e: any): void {
+    if (!this.isPenDrawing || !this.lastVertexId) return;
+
+    // Drag yapıyor muyuz?
+    const isDragging = e.e && (e.e.buttons === 1);
+
+    if (isDragging) {
+      // Kontrol noktası oluştur
+      this.vectorEngine.moveControlPoint(
+        this.lastVertexId,
+        'out',
+        pointer
+      );
+
+      // Güncelle
+      if (this.currentVectorNetwork) {
+        this.currentVectorNetwork.setNetwork(this.vectorEngine.getNetwork());
+        this.canvas.renderAll();
+      }
+    }
+  }
+
+  private handlePenMouseUp(): void {
+    this.isPenDrawing = false;
+  }
+
+  closePenPath(): void {
+    if (!this.currentVectorNetwork || !this.lastVertexId) return;
+
+    const network = this.vectorEngine.getNetwork();
+    const firstVertex = network.vertices[0];
+
+    if (firstVertex && network.vertices.length > 2) {
+      this.vectorEngine.addSegment(this.lastVertexId, firstVertex.id);
+      this.vectorEngine.updateRegions();
+      this.currentVectorNetwork.setNetwork(this.vectorEngine.getNetwork());
+      this.canvas.renderAll();
+
+      // Reset for new path
+      this.currentVectorNetwork = null;
+      this.lastVertexId = null;
+    }
+  }
+
+  finishPenPath(): void {
+    this.currentVectorNetwork = null;
+    this.lastVertexId = null;
+    this.isPenDrawing = false;
+  }
+
+  // ==================== VECTOR NETWORK EDITING ====================
+
+  enterEditMode(object: any): void {
+    if (object instanceof FabricVectorNetwork) {
+      object.setEditingMode(true);
+      this.canvas.renderAll();
+    }
+  }
+
+  exitEditMode(object: any): void {
+    if (object instanceof FabricVectorNetwork) {
+      object.setEditingMode(false);
+      this.canvas.renderAll();
+    }
+  }
+
+  addPointToPath(object: any, segmentId: string, t: number): Vertex | null {
+    if (object instanceof FabricVectorNetwork) {
+      return object.addPointOnSegment(segmentId, t);
+    }
+    return null;
+  }
+
+  deletePointFromPath(object: any, vertexId: string): void {
+    if (object instanceof FabricVectorNetwork) {
+      object.deleteVertex(vertexId);
+    }
   }
 
   destroy(): void {
