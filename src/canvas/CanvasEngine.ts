@@ -29,6 +29,11 @@ export class CanvasEngine {
   // Drawing state
   private unsubscribe: (() => void) | null = null;
 
+  // Pan state
+  private isPanning = false;
+  private panStart = { x: 0, y: 0 };
+  private resizeObserver: ResizeObserver | null = null;
+
   // Pen tool state
   private currentVectorNetwork: FabricVectorNetwork | null = null;
   private vectorEngine!: VectorNetworkEngine;
@@ -45,17 +50,17 @@ export class CanvasEngine {
     this.container = container;
     this.container.innerHTML = '';
     this.vectorEngine = new VectorNetworkEngine();
-    
+
     const canvasEl = document.createElement('canvas');
     canvasEl.id = 'vortexp-canvas';
     container.appendChild(canvasEl);
 
     const rect = container.getBoundingClientRect();
-    
+
     this.canvas = new (fabric as any).Canvas(canvasEl, {
-      width: rect.width - 40,
-      height: rect.height - 40,
-      backgroundColor: '#2a2a2a',
+      width: rect.width,
+      height: rect.height,
+      backgroundColor: '#1a1a1a',
       preserveObjectStacking: true,
       stopContextMenu: true,
       fireRightClick: true,
@@ -65,61 +70,123 @@ export class CanvasEngine {
       selectionLineWidth: 1
     });
 
-    this.setupGrid();
     this.setupEventListeners();
     this.subscribeToStore();
+    this.setupResizeObserver();
+    this.canvas.renderAll();
   }
 
-  private setupGrid(): void {
+  private drawInfiniteGrid(ctx: CanvasRenderingContext2D): void {
+    const zoom = this.canvas.getZoom();
+    const vpt = this.canvas.viewportTransform;
+    const w = this.canvas.width;
+    const h = this.canvas.height;
+
     const gridSize = 20;
-    const lines: any[] = [];
-    const width = this.canvas.width;
-    const height = this.canvas.height;
+    // Larger grid every 5 cells
+    const majorEvery = 5;
 
-    for (let x = 0; x <= width; x += gridSize) {
-      lines.push(new (fabric as any).Line([x, 0, x, height], {
-        stroke: '#E2E7E9',
-        strokeWidth: 0.5,
-        opacity: 0.1,
-        selectable: false,
-        evented: false
-      }));
+    // Viewport bounds in scene coordinates
+    const left = -vpt[4] / zoom;
+    const top = -vpt[5] / zoom;
+    const right = left + w / zoom;
+    const bottom = top + h / zoom;
+
+    const startX = Math.floor(left / gridSize) * gridSize;
+    const startY = Math.floor(top / gridSize) * gridSize;
+
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+    // Minor grid
+    ctx.strokeStyle = 'rgba(226, 231, 233, 0.06)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let x = startX; x <= right; x += gridSize) {
+      if (x % (gridSize * majorEvery) === 0) continue;
+      const sx = (x - left) * zoom;
+      ctx.moveTo(sx, 0);
+      ctx.lineTo(sx, h);
+    }
+    for (let y = startY; y <= bottom; y += gridSize) {
+      if (y % (gridSize * majorEvery) === 0) continue;
+      const sy = (y - top) * zoom;
+      ctx.moveTo(0, sy);
+      ctx.lineTo(w, sy);
+    }
+    ctx.stroke();
+
+    // Major grid
+    ctx.strokeStyle = 'rgba(226, 231, 233, 0.12)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    const majorSize = gridSize * majorEvery;
+    const majorStartX = Math.floor(left / majorSize) * majorSize;
+    const majorStartY = Math.floor(top / majorSize) * majorSize;
+    for (let x = majorStartX; x <= right; x += majorSize) {
+      const sx = (x - left) * zoom;
+      ctx.moveTo(sx, 0);
+      ctx.lineTo(sx, h);
+    }
+    for (let y = majorStartY; y <= bottom; y += majorSize) {
+      const sy = (y - top) * zoom;
+      ctx.moveTo(0, sy);
+      ctx.lineTo(w, sy);
+    }
+    ctx.stroke();
+
+    // Origin crosshair
+    const ox = (0 - left) * zoom;
+    const oy = (0 - top) * zoom;
+    if (ox >= -1 && ox <= w + 1 && oy >= -1 && oy <= h + 1) {
+      ctx.strokeStyle = 'rgba(59, 130, 246, 0.3)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(ox, 0); ctx.lineTo(ox, h);
+      ctx.moveTo(0, oy); ctx.lineTo(w, oy);
+      ctx.stroke();
     }
 
-    for (let y = 0; y <= height; y += gridSize) {
-      lines.push(new (fabric as any).Line([0, y, width, y], {
-        stroke: '#E2E7E9',
-        strokeWidth: 0.5,
-        opacity: 0.1,
-        selectable: false,
-        evented: false
-      }));
-    }
+    ctx.restore();
+  }
 
-    const gridGroup = new (fabric as any).Group(lines, {
-      selectable: false,
-      evented: false,
-      data: { isGrid: true }
+  private setupResizeObserver(): void {
+    if (!this.container) return;
+    this.resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        if (this.canvas && width > 0 && height > 0) {
+          this.canvas.setDimensions({ width, height });
+          this.canvas.renderAll();
+        }
+      }
     });
-
-    this.canvas.add(gridGroup);
-    gridGroup.sendToBack();
+    this.resizeObserver.observe(this.container);
   }
 
   private setupEventListeners(): void {
     if (!this.canvas) return;
+
+    // Draw infinite grid before objects render
+    this.canvas.on('before:render', ({ ctx }: { ctx: CanvasRenderingContext2D }) => {
+      const context = ctx || this.canvas.contextContainer || this.canvas.getContext?.();
+      if (context) {
+        this.canvas.clearContext(context);
+        this.drawInfiniteGrid(context);
+      }
+    });
 
     // Mouse events
     this.canvas.on('mouse:down', (e: any) => this.handleMouseDown(e));
     this.canvas.on('mouse:move', (e: any) => this.handleMouseMove(e));
     this.canvas.on('mouse:up', (e: any) => this.handleMouseUp(e));
     this.canvas.on('mouse:wheel', (e: any) => this.handleWheel(e));
-    
+
     // Selection events
     this.canvas.on('selection:created', (e: any) => this.handleSelection(e));
     this.canvas.on('selection:updated', (e: any) => this.handleSelection(e));
     this.canvas.on('selection:cleared', () => this.handleSelectionClear());
-    
+
     // Object events
     this.canvas.on('object:modified', (e: any) => this.handleObjectModified(e));
     this.canvas.on('object:moved', (e: any) => this.handleObjectMoved(e));
@@ -143,22 +210,36 @@ export class CanvasEngine {
 
   private updateCanvasMode(): void {
     if (!this.canvas) return;
-    
+
     const isSelectTool = this.currentTool === 'select' || this.currentTool === 'hand';
     this.canvas.selection = isSelectTool;
-    this.canvas.defaultCursor = this.currentTool === 'hand' ? 'grab' : 'default';
+    this.canvas.defaultCursor = this.currentTool === 'hand' ? 'grab'
+      : isSelectTool ? 'default' : 'crosshair';
+
+    // Toggle object interactivity based on tool
+    this.canvas.getObjects().forEach((obj: any) => {
+      obj.selectable = isSelectTool;
+      obj.evented = isSelectTool;
+    });
+    this.canvas.renderAll();
   }
 
   // ==================== MOUSE HANDLERS ====================
 
   private handleMouseDown(e: any): void {
-    const pointer = this.canvas.getPointer(e.e);
-    this.startPoint = { x: pointer.x, y: pointer.y };
+    const evt = e.e as MouseEvent;
 
-    if (this.currentTool === 'hand') {
+    // Pan with hand tool, middle mouse button, or space+click
+    if (this.currentTool === 'hand' || evt.button === 1) {
+      this.isPanning = true;
+      this.panStart = { x: evt.clientX, y: evt.clientY };
       this.canvas.defaultCursor = 'grabbing';
+      this.canvas.selection = false;
       return;
     }
+
+    const pointer = e.scenePoint ?? this.canvas.getScenePoint(evt);
+    this.startPoint = { x: pointer.x, y: pointer.y };
 
     if (this.currentTool === 'select') return;
 
@@ -171,6 +252,8 @@ export class CanvasEngine {
         this.currentObject = new (fabric as any).Rect({
           left: pointer.x,
           top: pointer.y,
+          originX: 'left',
+          originY: 'top',
           width: 0,
           height: 0,
           fill: config.fill,
@@ -186,6 +269,8 @@ export class CanvasEngine {
         this.currentObject = new (fabric as any).Ellipse({
           left: pointer.x,
           top: pointer.y,
+          originX: 'left',
+          originY: 'top',
           rx: 0,
           ry: 0,
           fill: config.fill,
@@ -245,7 +330,19 @@ export class CanvasEngine {
   }
 
   private handleMouseMove(e: any): void {
-    const pointer = this.canvas.getPointer(e.e);
+    const evt = e.e as MouseEvent;
+
+    // Handle panning
+    if (this.isPanning) {
+      const vpt = this.canvas.viewportTransform;
+      vpt[4] += evt.clientX - this.panStart.x;
+      vpt[5] += evt.clientY - this.panStart.y;
+      this.panStart = { x: evt.clientX, y: evt.clientY };
+      this.canvas.setViewportTransform(vpt);
+      return;
+    }
+
+    const pointer = e.scenePoint ?? this.canvas.getScenePoint(evt);
 
     // Pen tool has its own move handling
     if (this.currentTool === 'pen') {
@@ -259,30 +356,30 @@ export class CanvasEngine {
     switch (this.currentTool) {
       case 'rectangle':
         if (this.currentObject) {
-          this.currentObject.set({
-            width: Math.abs(pointer.x - this.startPoint.x),
-            height: Math.abs(pointer.y - this.startPoint.y),
-            left: Math.min(pointer.x, this.startPoint.x),
-            top: Math.min(pointer.y, this.startPoint.y)
-          });
+          const rw = Math.abs(pointer.x - this.startPoint.x);
+          const rh = Math.abs(pointer.y - this.startPoint.y);
+          const rl = Math.min(pointer.x, this.startPoint.x);
+          const rt = Math.min(pointer.y, this.startPoint.y);
+          this.currentObject.set({ left: rl, top: rt, width: rw, height: rh });
+          this.currentObject.setCoords();
         }
         break;
 
       case 'ellipse':
         if (this.currentObject) {
-          const rx = Math.abs(pointer.x - this.startPoint.x) / 2;
-          const ry = Math.abs(pointer.y - this.startPoint.y) / 2;
-          this.currentObject.set({
-            rx, ry,
-            left: Math.min(pointer.x, this.startPoint.x),
-            top: Math.min(pointer.y, this.startPoint.y)
-          });
+          const ew = Math.abs(pointer.x - this.startPoint.x);
+          const eh = Math.abs(pointer.y - this.startPoint.y);
+          const el = Math.min(pointer.x, this.startPoint.x);
+          const et = Math.min(pointer.y, this.startPoint.y);
+          this.currentObject.set({ left: el, top: et, rx: ew / 2, ry: eh / 2 });
+          this.currentObject.setCoords();
         }
         break;
 
       case 'line':
         if (this.currentObject) {
           this.currentObject.set({ x2: pointer.x, y2: pointer.y });
+          this.currentObject.setCoords();
         }
         break;
 
@@ -315,6 +412,15 @@ export class CanvasEngine {
   }
 
   private handleMouseUp(e: any): void {
+    // End panning
+    if (this.isPanning) {
+      this.isPanning = false;
+      this.canvas.defaultCursor = this.currentTool === 'hand' ? 'grab' : 'default';
+      const isSelectTool = this.currentTool === 'select' || this.currentTool === 'hand';
+      this.canvas.selection = isSelectTool;
+      return;
+    }
+
     // Pen tool has its own up handling
     if (this.currentTool === 'pen') {
       this.handlePenUp();
@@ -323,7 +429,7 @@ export class CanvasEngine {
 
     if (!this.isDrawing) return;
 
-    const pointer = this.canvas.getPointer(e.e);
+    const pointer = e.scenePoint ?? this.canvas.getScenePoint(e.e);
 
     if (this.currentTool === 'arrow') {
       this.createArrow(this.startPoint.x, this.startPoint.y, pointer.x, pointer.y);
@@ -341,6 +447,11 @@ export class CanvasEngine {
     this.isDrawing = false;
     this.currentObject = null;
     this.canvas.renderAll();
+
+    // Switch back to select tool after drawing (Figma behavior)
+    if (this.currentTool !== 'select' && this.currentTool !== 'hand') {
+      useCanvasStore.getState().setTool('select');
+    }
   }
 
   // ==================== PEN TOOL ====================
@@ -594,13 +705,16 @@ export class CanvasEngine {
 
   private handleWheel(e: any): void {
     e.e.preventDefault();
-    const delta = e.e.deltaY;
+    const evt = e.e as WheelEvent;
+    const delta = evt.deltaY;
     const zoom = this.canvas.getZoom();
-    
-    let newZoom = delta > 0 ? zoom * 0.9 : zoom * 1.1;
-    newZoom = Math.max(0.1, Math.min(10, newZoom));
-    
-    this.canvas.setZoom(newZoom);
+
+    let newZoom = delta > 0 ? zoom * 0.95 : zoom * 1.05;
+    newZoom = Math.max(0.05, Math.min(20, newZoom));
+
+    // Zoom to cursor position
+    const point = new (fabric as any).Point(evt.offsetX, evt.offsetY);
+    this.canvas.zoomToPoint(point, newZoom);
     useCanvasStore.getState().setZoom(newZoom);
   }
 
@@ -634,17 +748,14 @@ export class CanvasEngine {
   bringToFront(): void {
     const active = this.canvas.getActiveObject();
     if (active) {
-      active.bringToFront();
+      this.canvas.bringObjectToFront(active);
     }
   }
 
   sendToBack(): void {
     const active = this.canvas.getActiveObject();
     if (active) {
-      active.sendToBack();
-      // Keep grid at back
-      const grid = this.canvas.getObjects().find((o: any) => o.data?.isGrid);
-      if (grid) grid.sendToBack();
+      this.canvas.sendObjectToBack(active);
     }
   }
 
@@ -672,7 +783,7 @@ export class CanvasEngine {
     const activeObjects = this.canvas.getActiveObjects();
     activeObjects.forEach((obj: any) => {
       const id = obj.get('id');
-      if (id && !obj.data?.isGrid) {
+      if (id) {
         useCanvasStore.getState().deleteShape(id);
         this.canvas.remove(obj);
       }
@@ -683,8 +794,8 @@ export class CanvasEngine {
 
   clear(): void {
     this.canvas.clear();
-    this.setupGrid();
     useCanvasStore.getState().clear();
+    this.canvas.renderAll();
   }
 
   exportSVG(): string {
@@ -697,23 +808,27 @@ export class CanvasEngine {
 
   zoomIn(): void {
     const current = this.canvas.getZoom();
-    this.canvas.setZoom(current * 1.2);
-    useCanvasStore.getState().setZoom(current * 1.2);
+    const newZoom = Math.min(20, current * 1.2);
+    const center = new (fabric as any).Point(this.canvas.width / 2, this.canvas.height / 2);
+    this.canvas.zoomToPoint(center, newZoom);
+    useCanvasStore.getState().setZoom(newZoom);
   }
 
   zoomOut(): void {
     const current = this.canvas.getZoom();
-    this.canvas.setZoom(current / 1.2);
-    useCanvasStore.getState().setZoom(current / 1.2);
+    const newZoom = Math.max(0.05, current / 1.2);
+    const center = new (fabric as any).Point(this.canvas.width / 2, this.canvas.height / 2);
+    this.canvas.zoomToPoint(center, newZoom);
+    useCanvasStore.getState().setZoom(newZoom);
   }
 
   resetZoom(): void {
-    this.canvas.setZoom(1);
-    this.canvas.viewportTransform = [1, 0, 0, 1, 0, 0];
+    this.canvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
     useCanvasStore.getState().setZoom(1);
   }
 
   destroy(): void {
+    if (this.resizeObserver) this.resizeObserver.disconnect();
     if (this.unsubscribe) this.unsubscribe();
     if (this.canvas) this.canvas.dispose();
     if (this.container) this.container.innerHTML = '';

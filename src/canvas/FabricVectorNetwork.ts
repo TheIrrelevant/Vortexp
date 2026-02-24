@@ -246,5 +246,3 @@ export class FabricVectorNetwork extends (fabric.Group as any) {
   }
 }
 
-// Register as custom Fabric.js object
-(fabric as any).FabricVectorNetwork = FabricVectorNetwork;

@@ -11,19 +11,20 @@ import './App.css';
 
 function App() {
   const canvasRef = useRef<HTMLDivElement>(null);
-  const [canvasInitialized, setCanvasInitialized] = useState(false);
+  const initializedRef = useRef(false);
   const [rightPanelTab, setRightPanelTab] = useState<'properties' | 'boolean' | 'autolayout' | 'variables'>('properties');
-  
+
   const { zoom, tool, shapes, selectedIds } = useCanvasStore();
 
   useEffect(() => {
-    if (canvasRef.current && !canvasInitialized) {
+    if (canvasRef.current && !initializedRef.current) {
+      initializedRef.current = true;
       canvasEngine.initialize('canvas-container');
-      setCanvasInitialized(true);
     }
 
     return () => {
       canvasEngine.destroy();
+      initializedRef.current = false;
     };
   }, []);
 

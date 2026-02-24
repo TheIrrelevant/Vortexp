@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+  <rect width="32" height="32" rx="6" fill="#222121"/>
+  <!-- Pen nib / vector point -->
+  <path d="M16 5 L24 24 L16 20 L8 24 Z" fill="none" stroke="#F9FEFF" stroke-width="1.5" stroke-linejoin="round"/>
+  <!-- Bezier control lines -->
+  <line x1="8" y1="24" x2="4" y2="14" stroke="#E2E7E9" stroke-width="0.8" opacity="0.4"/>
+  <line x1="24" y1="24" x2="28" y2="14" stroke="#E2E7E9" stroke-width="0.8" opacity="0.4"/>
+  <!-- Control points -->
+  <circle cx="16" cy="5" r="2" fill="#F9FEFF"/>
+  <circle cx="4" cy="14" r="1.5" fill="#E2E7E9" opacity="0.6"/>
+  <circle cx="28" cy="14" r="1.5" fill="#E2E7E9" opacity="0.6"/>
+  <!-- Anchor points -->
+  <rect x="6.5" y="22.5" width="3" height="3" rx="0.5" fill="none" stroke="#F9FEFF" stroke-width="1"/>
+  <rect x="22.5" y="22.5" width="3" height="3" rx="0.5" fill="none" stroke="#F9FEFF" stroke-width="1"/>
+</svg>
