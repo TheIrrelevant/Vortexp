@@ -11,14 +11,14 @@ import { VectorNetworkEngine } from '../vector/VectorNetworkEngine';
 
 /**
  * Figma Pen Tool - 1:1 Implementation
- * 
- * İnteraksiyonlar:
- * 1. Click → Düz nokta ekle
- * 2. Click + Drag → Bezier kontrol noktası ekle
- * 3. Shift + Click → 45° açıyla kısıtla
- * 4. Alt + Click → Köşe noktası (disconnected)
- * 5. Double-click → Path'i kapat
- * 6. Click on first point → Path'i kapat
+ *
+ * Interactions:
+ * 1. Click → Add straight point
+ * 2. Click + Drag → Add Bezier control point
+ * 3. Shift + Click → Constrain to 45° angles
+ * 4. Alt + Click → Corner point (disconnected)
+ * 5. Double-click → Close path
+ * 6. Click on first point → Close path
  */
 export class PenTool {
   private engine: VectorNetworkEngine;
@@ -43,35 +43,35 @@ export class PenTool {
   // ==================== EVENT HANDLERS ====================
 
   /**
-   * Mouse down - Yeni nokta başlat
+   * Mouse down - Start new point
    */
   handleMouseDown(
     point: Point,
     modifiers: { shift: boolean; alt: boolean; ctrl: boolean }
   ): void {
     if (this.state.isClosed) {
-      // Yeni path başlat
+      // Start new path
       this.startNewPath();
     }
 
-    // İlk nokta mı?
+    // Is this the first point?
     if (!this.state.currentVertexId) {
       this.startNewPath();
     }
 
-    // Shift basılı ise 45° açıyla kısıtla
+    // Constrain to 45° angles if Shift is held
     const constrainedPoint = modifiers.shift
       ? this.constrainToAngle(point)
       : point;
 
-    // Nokta ekle
+    // Add point
     const vertex = this.engine.addVertex(
       constrainedPoint.x,
       constrainedPoint.y,
       modifiers.alt ? 'DISCONNECTED' : 'MIRRORED'
     );
 
-    // Önceki noktaya bağla
+    // Connect to previous point
     if (this.state.currentVertexId) {
       const segment = this.engine.addSegment(
         this.state.currentVertexId,
@@ -92,7 +92,7 @@ export class PenTool {
   }
 
   /**
-   * Mouse move - Drag için kontrol noktası oluştur
+   * Mouse move - Create control point for drag
    */
   handleMouseMove(
     point: Point,
@@ -105,18 +105,18 @@ export class PenTool {
     if (!currentVertex) return;
 
     if (isDragging) {
-      // Kontrol noktası oluştur
+      // Create control point
       const controlPoint: ControlPoint = {
         x: point.x,
         y: point.y
       };
 
-      // Shift basılı ise açıyı kısıtla
+      // Constrain angle if Shift is held
       const constrainedCP = modifiers.shift
         ? this.constrainControlPoint(currentVertex, controlPoint)
         : controlPoint;
 
-      // Kontrol noktasını ayarla
+      // Set the control point
       this.engine.updateVertex(currentVertex.id, {
         controlOut: constrainedCP,
         type: modifiers.alt ? 'ASYMMETRIC' : 'MIRRORED'
@@ -124,7 +124,7 @@ export class PenTool {
 
       this.state.tempControlPoint = constrainedCP;
     } else {
-      // Preview segment göster
+      // Show preview segment
       this.updatePreviewSegment();
     }
 
@@ -132,7 +132,7 @@ export class PenTool {
   }
 
   /**
-   * Mouse up - Drag bitir
+   * Mouse up - Finish drag
    */
   handleMouseUp(): void {
     if (this.state.tempControlPoint) {
@@ -142,21 +142,21 @@ export class PenTool {
   }
 
   /**
-   * Double click - Path'i kapat
+   * Double click - Close path
    */
   handleDoubleClick(): void {
     this.closePath();
   }
 
   /**
-   * İlk noktaya tıklama - Path'i kapat
+   * Click on first point - Close path
    */
   handleClickOnVertex(vertexId: string): void {
     const network = this.engine.getNetwork();
 
-    // İlk vertex'e mi tıklandı?
+    // Was the first vertex clicked?
     if (vertexId === network.vertices[0]?.id && network.vertices.length > 2) {
-      // Path'i kapat
+      // Close path
       if (this.state.currentVertexId) {
         this.engine.addSegment(this.state.currentVertexId, vertexId);
       }
@@ -168,11 +168,11 @@ export class PenTool {
   }
 
   /**
-   * Escape - İptal et
+   * Escape - Cancel
    */
   handleEscape(): void {
     if (this.state.isDrawing) {
-      // Son noktayı sil
+      // Delete the last point
       if (this.state.currentVertexId) {
         this.engine.deleteVertex(this.state.currentVertexId);
       }
@@ -182,7 +182,7 @@ export class PenTool {
     }
   }
 
-  // ==================== YARDIMCI METODLAR ====================
+  // ==================== HELPER METHODS ====================
 
   private startNewPath(): void {
     this.engine.loadNetwork(this.engine.createEmptyNetwork());
@@ -209,7 +209,7 @@ export class PenTool {
     const angle = Math.atan2(dy, dx);
     const distance = Math.sqrt(dx * dx + dy * dy);
 
-    // 45° aralıklarla kısıtla
+    // Constrain to 45° intervals
     const snappedAngle = Math.round(angle / (Math.PI / 4)) * (Math.PI / 4);
 
     return {
@@ -227,7 +227,7 @@ export class PenTool {
     const angle = Math.atan2(dy, dx);
     const distance = Math.sqrt(dx * dx + dy * dy);
 
-    // 45° aralıklarla kısıtla
+    // Constrain to 45° intervals
     const snappedAngle = Math.round(angle / (Math.PI / 4)) * (Math.PI / 4);
 
     return {

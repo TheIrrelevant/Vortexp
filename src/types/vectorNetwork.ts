@@ -2,10 +2,10 @@
 
 /**
  * Figma Vector Networks - 1:1 Implementation
- * 
- * SVG Path'ten farkı:
- * - SVG: Tek yönlü path (A → B → C → D)
- * - Vector Network: Çok yönlü graf (A ↔ B ↔ C, A ↔ D)
+ *
+ * Difference from SVG Paths:
+ * - SVG: Unidirectional path (A → B → C → D)
+ * - Vector Network: Multi-directional graph (A ↔ B ↔ C, A ↔ D)
  */
 
 export type ControlPointType = 'STRAIGHT' | 'MIRRORED' | 'ASYMMETRIC' | 'DISCONNECTED';
@@ -26,13 +26,13 @@ export interface Vertex {
   y: number;
   
   // Bezier control points
-  controlIn?: ControlPoint;   // Gelen eğri control point
-  controlOut?: ControlPoint;  // Giden eğri control point
-  
-  // Control point tipi
+  controlIn?: ControlPoint;   // Incoming curve control point
+  controlOut?: ControlPoint;  // Outgoing curve control point
+
+  // Control point type
   type: ControlPointType;
-  
-  // Bağlı olduğu segment'ler
+
+  // Connected segments
   connectedSegments: string[];
 }
 
@@ -41,7 +41,7 @@ export interface Segment {
   startVertexId: string;
   endVertexId: string;
   
-  // Segment'e özel control points (vertex'lerden farklı)
+  // Segment-specific control points (different from vertex control points)
   controlStart?: ControlPoint;
   controlEnd?: ControlPoint;
 }
@@ -50,8 +50,8 @@ export interface Region {
   id: string;
   windingRule: 'NONZERO' | 'EVENODD';
   
-  // Kapalı path'ler (loop'lar)
-  loops: string[][];  // Her loop vertex ID'lerinden oluşur
+  // Closed paths (loops)
+  loops: string[][];  // Each loop consists of vertex IDs
 }
 
 export interface VectorNetwork {
@@ -60,7 +60,7 @@ export interface VectorNetwork {
   segments: Segment[];
   regions: Region[];
   
-  // Stil
+  // Style
   fill: string;
   stroke: string;
   strokeWidth: number;
@@ -74,7 +74,7 @@ export interface VectorNetwork {
   scaleY: number;
 }
 
-// Bezier curve hesaplama için
+// Bezier curve calculation
 export interface BezierCurve {
   p0: Point;  // Start point
   p1: Point;  // Control point 1

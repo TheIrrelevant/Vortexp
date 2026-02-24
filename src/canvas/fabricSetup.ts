@@ -1,12 +1,12 @@
 // src/canvas/fabricSetup.ts
-// Fabric.js modülünü optimize edilmiş şekilde yükle
+// Load Fabric.js module in optimized form
 
 import * as fabricModule from 'fabric';
 
-// Export fabric namespace - fabricModule direkt fabric nesnesidir
+// Export fabric namespace - fabricModule is the fabric object directly
 export const fabric = fabricModule as any;
 
-// Canvas boyutlarını container'a göre hesapla
+// Calculate canvas dimensions based on container
 export function getCanvasDimensions(containerId: string): { width: number; height: number } {
   const container = document.getElementById(containerId);
   if (!container) {
@@ -14,15 +14,15 @@ export function getCanvasDimensions(containerId: string): { width: number; heigh
   }
 
   const rect = container.getBoundingClientRect();
-  const padding = 80; // 40px her taraftan
-  
+  const padding = 80; // 40px on each side
+
   return {
     width: Math.max(800, rect.width - padding),
     height: Math.max(600, rect.height - padding)
   };
 }
 
-// Grid oluştur
+// Create grid
 export function createGridPattern(
   canvas: any,
   gridSize: number = 20
@@ -31,7 +31,7 @@ export function createGridPattern(
   const width = canvas.width || 800;
   const height = canvas.height || 600;
 
-  // Dikey çizgiler
+  // Vertical lines
   for (let x = 0; x <= width; x += gridSize) {
     const line = new fabric.Line([x, 0, x, height], {
       stroke: '#E2E7E9',
@@ -43,7 +43,7 @@ export function createGridPattern(
     lines.push(line);
   }
 
-  // Yatay çizgiler
+  // Horizontal lines
   for (let y = 0; y <= height; y += gridSize) {
     const line = new fabric.Line([0, y, width, y], {
       stroke: '#E2E7E9',

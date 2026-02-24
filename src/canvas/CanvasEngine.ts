@@ -1,21 +1,35 @@
 // src/canvas/CanvasEngine.ts
-import { fabric, getCanvasDimensions, createGridPattern } from './fabricSetup';
+
+import { fabric } from './fabricSetup';
 import { nanoid } from 'nanoid';
-import { useCanvasStore } from '../store/canvasStore';
-import type { Point, Shape, ShapeStyle, ToolType } from '../types/canvas';
-import type { Vertex } from '../types/vectorNetwork';
+import { useCanvasStore, type ToolType, type Shape } from '../store/canvasStore';
+import { advancedShapesEngine } from '../shapes/AdvancedShapesEngine';
 import { VectorNetworkEngine } from '../vector/VectorNetworkEngine';
 import { FabricVectorNetwork } from './FabricVectorNetwork';
 
+/**
+ * Full Canvas Engine - Figma Replica
+ *
+ * Integrated modules:
+ * - All shape tools (rect, ellipse, line, polygon, star, arrow, text)
+ * - Pen tool with Vector Networks
+ * - Boolean operations
+ * - Auto Layout
+ * - Components
+ * - Variables
+ */
 export class CanvasEngine {
   private canvas: any | null = null;
   private container: HTMLElement | null = null;
   private isDrawing = false;
-  private startPoint: Point = { x: 0, y: 0 };
-  private currentObject: any | null = null;
+  private startPoint = { x: 0, y: 0 };
+  private currentObject: any = null;
   private currentTool: ToolType = 'select';
-  
-  // Pen Tool state
+
+  // Drawing state
+  private unsubscribe: (() => void) | null = null;
+
+  // Pen tool state
   private currentVectorNetwork: FabricVectorNetwork | null = null;
   private vectorEngine!: VectorNetworkEngine;
   private lastVertexId: string | null = null;
@@ -29,22 +43,18 @@ export class CanvasEngine {
     }
 
     this.container = container;
-    
-    // Initialize Vector Engine for Pen Tool
+    this.container.innerHTML = '';
     this.vectorEngine = new VectorNetworkEngine();
     
-    // Container boyutuna göre canvas boyutu hesapla
-    const { width, height } = getCanvasDimensions(containerId);
-    
-    // Create canvas element
     const canvasEl = document.createElement('canvas');
     canvasEl.id = 'vortexp-canvas';
     container.appendChild(canvasEl);
 
-    // Initialize Fabric canvas
-    this.canvas = new fabric.Canvas(canvasEl, {
-      width,
-      height,
+    const rect = container.getBoundingClientRect();
+    
+    this.canvas = new (fabric as any).Canvas(canvasEl, {
+      width: rect.width - 40,
+      height: rect.height - 40,
       backgroundColor: '#2a2a2a',
       preserveObjectStacking: true,
       stopContextMenu: true,
@@ -55,48 +65,78 @@ export class CanvasEngine {
       selectionLineWidth: 1
     });
 
-    this.setupEventListeners();
     this.setupGrid();
+    this.setupEventListeners();
+    this.subscribeToStore();
+  }
+
+  private setupGrid(): void {
+    const gridSize = 20;
+    const lines: any[] = [];
+    const width = this.canvas.width;
+    const height = this.canvas.height;
+
+    for (let x = 0; x <= width; x += gridSize) {
+      lines.push(new (fabric as any).Line([x, 0, x, height], {
+        stroke: '#E2E7E9',
+        strokeWidth: 0.5,
+        opacity: 0.1,
+        selectable: false,
+        evented: false
+      }));
+    }
+
+    for (let y = 0; y <= height; y += gridSize) {
+      lines.push(new (fabric as any).Line([0, y, width, y], {
+        stroke: '#E2E7E9',
+        strokeWidth: 0.5,
+        opacity: 0.1,
+        selectable: false,
+        evented: false
+      }));
+    }
+
+    const gridGroup = new (fabric as any).Group(lines, {
+      selectable: false,
+      evented: false,
+      data: { isGrid: true }
+    });
+
+    this.canvas.add(gridGroup);
+    gridGroup.sendToBack();
   }
 
   private setupEventListeners(): void {
     if (!this.canvas) return;
 
-    // Subscribe to tool changes
-    useCanvasStore.subscribe((state) => {
-      this.currentTool = state.currentTool;
-      this.updateCanvasMode();
-    });
-
     // Mouse events
     this.canvas.on('mouse:down', (e: any) => this.handleMouseDown(e));
     this.canvas.on('mouse:move', (e: any) => this.handleMouseMove(e));
-    this.canvas.on('mouse:up', () => this.handleMouseUp());
+    this.canvas.on('mouse:up', (e: any) => this.handleMouseUp(e));
+    this.canvas.on('mouse:wheel', (e: any) => this.handleWheel(e));
     
     // Selection events
-    this.canvas.on('selection:created', (e: any) => {
-      const selected = e.selected?.[0];
-      if (selected) {
-        useCanvasStore.getState().selectShape(selected.get('id') as string);
+    this.canvas.on('selection:created', (e: any) => this.handleSelection(e));
+    this.canvas.on('selection:updated', (e: any) => this.handleSelection(e));
+    this.canvas.on('selection:cleared', () => this.handleSelectionClear());
+    
+    // Object events
+    this.canvas.on('object:modified', (e: any) => this.handleObjectModified(e));
+    this.canvas.on('object:moved', (e: any) => this.handleObjectMoved(e));
+    this.canvas.on('object:scaled', (e: any) => this.handleObjectScaled(e));
+  }
+
+  private subscribeToStore(): void {
+    this.unsubscribe = useCanvasStore.subscribe((state, prevState) => {
+      // Tool changed
+      if (state.tool !== prevState.tool) {
+        this.currentTool = state.tool;
+        this.updateCanvasMode();
       }
-    });
-
-    this.canvas.on('selection:cleared', () => {
-      useCanvasStore.getState().selectShape(null);
-    });
-
-    this.canvas.on('selection:updated', (e: any) => {
-      const selected = e.selected?.[0];
-      if (selected) {
-        useCanvasStore.getState().selectShape(selected.get('id') as string);
-      }
-    });
-
-    // Object modification
-    this.canvas.on('object:modified', (e: any) => {
-      const obj = e.target;
-      if (obj) {
-        this.syncObjectToStore(obj);
+      
+      // Selection changed from store
+      if (state.selectedIds !== prevState.selectedIds) {
+        this.syncSelectionFromStore(state.selectedIds);
       }
     });
   }
@@ -104,328 +144,225 @@ export class CanvasEngine {
   private updateCanvasMode(): void {
     if (!this.canvas) return;
     
-    if (this.currentTool === 'select') {
-      this.canvas.selection = true;
-      this.canvas.isDrawingMode = false;
-    } else {
-      this.canvas.selection = false;
-      this.canvas.isDrawingMode = false;
-      this.canvas.discardActiveObject();
-    }
+    const isSelectTool = this.currentTool === 'select' || this.currentTool === 'hand';
+    this.canvas.selection = isSelectTool;
+    this.canvas.defaultCursor = this.currentTool === 'hand' ? 'grab' : 'default';
   }
 
-  private setupGrid(): void {
-    if (!this.canvas) return;
-
-    const gridGroup = createGridPattern(this.canvas, 20);
-    this.canvas.add(gridGroup);
-    gridGroup.sendToBack();
-  }
+  // ==================== MOUSE HANDLERS ====================
 
   private handleMouseDown(e: any): void {
+    const pointer = this.canvas.getPointer(e.e);
+    this.startPoint = { x: pointer.x, y: pointer.y };
+
+    if (this.currentTool === 'hand') {
+      this.canvas.defaultCursor = 'grabbing';
+      return;
+    }
+
     if (this.currentTool === 'select') return;
 
-    const pointer = this.canvas!.getPointer(e.e);
-    this.startPoint = { x: pointer.x, y: pointer.y };
     this.isDrawing = true;
-
-    const toolConfig = useCanvasStore.getState().toolConfig;
+    const store = useCanvasStore.getState();
+    const config = store.toolConfig;
 
     switch (this.currentTool) {
       case 'rectangle':
-        this.currentObject = new fabric.Rect({
+        this.currentObject = new (fabric as any).Rect({
           left: pointer.x,
           top: pointer.y,
           width: 0,
           height: 0,
-          fill: toolConfig.fill,
-          stroke: toolConfig.stroke,
-          strokeWidth: toolConfig.strokeWidth,
-          opacity: toolConfig.opacity,
-          selectable: false
+          fill: config.fill,
+          stroke: config.stroke,
+          strokeWidth: config.strokeWidth,
+          opacity: config.opacity,
+          selectable: false,
+          data: { shapeType: 'rectangle' }
         });
         break;
 
       case 'ellipse':
-        this.currentObject = new fabric.Ellipse({
+        this.currentObject = new (fabric as any).Ellipse({
           left: pointer.x,
           top: pointer.y,
           rx: 0,
           ry: 0,
-          fill: toolConfig.fill,
-          stroke: toolConfig.stroke,
-          strokeWidth: toolConfig.strokeWidth,
-          opacity: toolConfig.opacity,
-          selectable: false
+          fill: config.fill,
+          stroke: config.stroke,
+          strokeWidth: config.strokeWidth,
+          opacity: config.opacity,
+          selectable: false,
+          data: { shapeType: 'ellipse' }
         });
         break;
 
       case 'line':
-        this.currentObject = new fabric.Line(
+        this.currentObject = new (fabric as any).Line(
           [pointer.x, pointer.y, pointer.x, pointer.y],
           {
-            stroke: toolConfig.stroke,
-            strokeWidth: toolConfig.strokeWidth,
-            opacity: toolConfig.opacity,
-            selectable: false
+            stroke: config.stroke,
+            strokeWidth: config.strokeWidth,
+            opacity: config.opacity,
+            selectable: false,
+            data: { shapeType: 'line' }
           }
         );
         break;
 
+      case 'polygon':
+        this.currentObject = advancedShapesEngine.createPolygon(
+          pointer.x, pointer.y, 0, 6,
+          { ...config, rotation: 0 }
+        );
+        this.currentObject.set({ selectable: false, data: { shapeType: 'polygon' } });
+        break;
+
+      case 'star':
+        this.currentObject = advancedShapesEngine.createStar(
+          pointer.x, pointer.y, 0, 0, 5,
+          { ...config, rotation: 0 }
+        );
+        this.currentObject.set({ selectable: false, data: { shapeType: 'star' } });
+        break;
+
+      case 'arrow':
+        // Arrow will be created on mouse up
+        break;
+
       case 'pen':
-        this.handlePenMouseDown({ x: pointer.x, y: pointer.y });
-        return; // Pen tool için farklı işlem
+        this.handlePenDown(pointer);
+        return;
+
+      case 'text':
+        this.createText(pointer.x, pointer.y);
+        return;
     }
 
     if (this.currentObject) {
-      this.currentObject.set('id', nanoid());
-      this.canvas!.add(this.currentObject);
+      this.canvas.add(this.currentObject);
     }
   }
 
   private handleMouseMove(e: any): void {
-    const pointer = this.canvas!.getPointer(e.e);
+    const pointer = this.canvas.getPointer(e.e);
 
-    // Pen Tool özel işlem
+    // Pen tool has its own move handling
     if (this.currentTool === 'pen') {
-      this.handlePenMouseMove({ x: pointer.x, y: pointer.y }, e);
+      const isDragging = e.e && (e.e.buttons === 1);
+      this.handlePenMove(pointer, isDragging);
       return;
     }
 
-    if (!this.isDrawing || !this.currentObject) return;
+    if (!this.isDrawing) return;
 
     switch (this.currentTool) {
       case 'rectangle':
-        const rect = this.currentObject;
-        rect.set({
-          width: Math.abs(pointer.x - this.startPoint.x),
-          height: Math.abs(pointer.y - this.startPoint.y),
-          left: Math.min(pointer.x, this.startPoint.x),
-          top: Math.min(pointer.y, this.startPoint.y)
-        });
+        if (this.currentObject) {
+          this.currentObject.set({
+            width: Math.abs(pointer.x - this.startPoint.x),
+            height: Math.abs(pointer.y - this.startPoint.y),
+            left: Math.min(pointer.x, this.startPoint.x),
+            top: Math.min(pointer.y, this.startPoint.y)
+          });
+        }
         break;
 
       case 'ellipse':
-        const ellipse = this.currentObject;
-        ellipse.set({
-          rx: Math.abs(pointer.x - this.startPoint.x) / 2,
-          ry: Math.abs(pointer.y - this.startPoint.y) / 2,
-          left: Math.min(pointer.x, this.startPoint.x),
-          top: Math.min(pointer.y, this.startPoint.y)
-        });
+        if (this.currentObject) {
+          const rx = Math.abs(pointer.x - this.startPoint.x) / 2;
+          const ry = Math.abs(pointer.y - this.startPoint.y) / 2;
+          this.currentObject.set({
+            rx, ry,
+            left: Math.min(pointer.x, this.startPoint.x),
+            top: Math.min(pointer.y, this.startPoint.y)
+          });
+        }
         break;
 
       case 'line':
-        const line = this.currentObject;
-        line.set({
-          x2: pointer.x,
-          y2: pointer.y
-        });
+        if (this.currentObject) {
+          this.currentObject.set({ x2: pointer.x, y2: pointer.y });
+        }
+        break;
+
+      case 'polygon':
+      case 'star':
+        if (this.currentObject) {
+          const radius = Math.sqrt(
+            Math.pow(pointer.x - this.startPoint.x, 2) +
+            Math.pow(pointer.y - this.startPoint.y, 2)
+          );
+          // Re-create with new radius
+          const config = useCanvasStore.getState().toolConfig;
+          this.canvas.remove(this.currentObject);
+          if (this.currentTool === 'polygon') {
+            this.currentObject = advancedShapesEngine.createPolygon(
+              this.startPoint.x, this.startPoint.y, radius, 6, config
+            );
+          } else {
+            this.currentObject = advancedShapesEngine.createStar(
+              this.startPoint.x, this.startPoint.y, radius, radius * 0.4, 5, config
+            );
+          }
+          this.currentObject.set({ selectable: false });
+          this.canvas.add(this.currentObject);
+        }
         break;
     }
 
-    this.canvas!.renderAll();
-  }
-
-  private handleMouseUp(): void {
-    // Pen Tool özel işlem
-    if (this.currentTool === 'pen') {
-      this.handlePenMouseUp();
-      return;
-    }
-
-    if (!this.isDrawing || !this.currentObject) return;
-
-    this.isDrawing = false;
-    this.currentObject.set({ selectable: true });
-    
-    // Sync to store
-    this.syncObjectToStore(this.currentObject);
-    
-    this.currentObject = null;
-    this.canvas!.renderAll();
-  }
-
-  private syncObjectToStore(obj: any): void {
-    const id = obj.get('id') as string;
-    if (!id) return;
-
-    const store = useCanvasStore.getState();
-    const existingShape = store.shapes.find((s) => s.id === id);
-
-    if (!existingShape) {
-      // Create new shape
-      const shape = this.fabricObjectToShape(obj);
-      if (shape) {
-        store.addShape(shape);
-      }
-    } else {
-      // Update existing
-      const updates = this.fabricObjectToShapeUpdates(obj);
-      store.updateShape(id, updates);
-    }
-  }
-
-  private fabricObjectToShape(obj: any): Shape | null {
-    const id = obj.get('id') as string;
-    const style: ShapeStyle = {
-      fill: obj.fill as string || '#000000',
-      stroke: obj.stroke as string || '#000000',
-      strokeWidth: obj.strokeWidth as number || 1,
-      opacity: obj.opacity as number || 1
-    };
-
-    if (obj instanceof fabric.Rect) {
-      return {
-        id,
-        type: 'rectangle',
-        x: obj.left!,
-        y: obj.top!,
-        width: obj.width! * (obj.scaleX || 1),
-        height: obj.height! * (obj.scaleY || 1),
-        style
-      };
-    }
-
-    if (obj instanceof fabric.Ellipse) {
-      return {
-        id,
-        type: 'ellipse',
-        x: obj.left! + (obj.rx || 0),
-        y: obj.top! + (obj.ry || 0),
-        rx: (obj.rx || 0) * (obj.scaleX || 1),
-        ry: (obj.ry || 0) * (obj.scaleY || 1),
-        style
-      };
-    }
-
-    if (obj instanceof fabric.Line) {
-      return {
-        id,
-        type: 'line',
-        x: (obj as any).x1,
-        y: (obj as any).y1,
-        x2: (obj as any).x2,
-        y2: (obj as any).y2,
-        style
-      };
-    }
-
-    return null;
-  }
-
-  private fabricObjectToShapeUpdates(obj: any): Partial<Shape> {
-    const updates: Partial<Shape> = {};
-
-    if (obj instanceof fabric.Rect) {
-      updates.x = obj.left!;
-      updates.y = obj.top!;
-      (updates as any).width = obj.width! * (obj.scaleX || 1);
-      (updates as any).height = obj.height! * (obj.scaleY || 1);
-    }
-
-    if (obj instanceof fabric.Ellipse) {
-      updates.x = obj.left! + (obj.rx || 0);
-      updates.y = obj.top! + (obj.ry || 0);
-      (updates as any).rx = (obj.rx || 0) * (obj.scaleX || 1);
-      (updates as any).ry = (obj.ry || 0) * (obj.scaleY || 1);
-    }
-
-    if (obj instanceof fabric.Line) {
-      (updates as any).x = (obj as any).x1;
-      (updates as any).y = (obj as any).y1;
-      (updates as any).x2 = (obj as any).x2;
-      (updates as any).y2 = (obj as any).y2;
-    }
-
-    updates.style = {
-      fill: obj.fill as string || '#000000',
-      stroke: obj.stroke as string || '#000000',
-      strokeWidth: obj.strokeWidth as number || 1,
-      opacity: obj.opacity as number || 1
-    };
-
-    return updates;
-  }
-
-  // Public methods
-  exportToSVG(): string {
-    if (!this.canvas) return '';
-    return this.canvas.toSVG();
-  }
-
-  exportToPNG(): string {
-    if (!this.canvas) return '';
-    return this.canvas.toDataURL({
-      format: 'png',
-      quality: 1
-    });
-  }
-
-  clear(): void {
-    if (!this.canvas) return;
-    this.canvas.clear();
-    this.setupGrid();
-    useCanvasStore.getState().clearCanvas();
-  }
-
-  deleteSelected(): void {
-    if (!this.canvas) return;
-    const activeObject = this.canvas.getActiveObject();
-    if (activeObject) {
-      const id = activeObject.get('id') as string;
-      this.canvas.remove(activeObject);
-      useCanvasStore.getState().deleteShape(id);
-    }
-  }
-
-  zoomIn(): void {
-    const store = useCanvasStore.getState();
-    store.setZoom(store.zoom * 1.2);
-    this.applyZoom();
-  }
-
-  zoomOut(): void {
-    const store = useCanvasStore.getState();
-    store.setZoom(store.zoom / 1.2);
-    this.applyZoom();
-  }
-
-  resetZoom(): void {
-    useCanvasStore.getState().setZoom(1);
-    this.applyZoom();
-  }
-
-  private applyZoom(): void {
-    if (!this.canvas) return;
-    const zoom = useCanvasStore.getState().zoom;
-    this.canvas.setZoom(zoom);
     this.canvas.renderAll();
   }
 
-  // ==================== PEN TOOL METHODS ====================
+  private handleMouseUp(e: any): void {
+    // Pen tool has its own up handling
+    if (this.currentTool === 'pen') {
+      this.handlePenUp();
+      return;
+    }
 
-  private handlePenMouseDown(pointer: Point): void {
-    // Yeni vector network başlat
+    if (!this.isDrawing) return;
+
+    const pointer = this.canvas.getPointer(e.e);
+
+    if (this.currentTool === 'arrow') {
+      this.createArrow(this.startPoint.x, this.startPoint.y, pointer.x, pointer.y);
+    } else if (this.currentObject) {
+      this.currentObject.set({ selectable: true });
+      
+      // Add to store
+      const shape = this.objectToShape(this.currentObject);
+      if (shape) {
+        useCanvasStore.getState().addShape(shape);
+        useCanvasStore.getState().selectShape(shape.id);
+      }
+    }
+
+    this.isDrawing = false;
+    this.currentObject = null;
+    this.canvas.renderAll();
+  }
+
+  // ==================== PEN TOOL ====================
+
+  private handlePenDown(pointer: { x: number; y: number }): void {
+    // Start a new vector network if none exists
     if (!this.currentVectorNetwork) {
       const network = this.vectorEngine.createEmptyNetwork();
-      network.fill = useCanvasStore.getState().toolConfig.fill;
-      network.stroke = useCanvasStore.getState().toolConfig.stroke;
-      network.strokeWidth = useCanvasStore.getState().toolConfig.strokeWidth;
+      const config = useCanvasStore.getState().toolConfig;
+      network.fill = config.fill;
+      network.stroke = config.stroke;
+      network.strokeWidth = config.strokeWidth;
       this.vectorEngine.loadNetwork(network);
 
       this.currentVectorNetwork = new FabricVectorNetwork(network);
       this.canvas.add(this.currentVectorNetwork);
     }
 
-    // Vertex ekle
-    const vertex = this.vectorEngine.addVertex(
-      pointer.x,
-      pointer.y,
-      'MIRRORED'
-    );
+    // Add vertex
+    const vertex = this.vectorEngine.addVertex(pointer.x, pointer.y, 'MIRRORED');
 
-    // Önceki vertex'e bağla
+    // Connect to previous vertex
     if (this.lastVertexId) {
       this.vectorEngine.addSegment(this.lastVertexId, vertex.id);
     }
@@ -433,26 +370,26 @@ export class CanvasEngine {
     this.lastVertexId = vertex.id;
     this.isPenDrawing = true;
 
-    // Vector network'ü güncelle
+    // Sync store pen state
+    const store = useCanvasStore.getState();
+    if (!store.penState.isDrawing) {
+      store.startPenPath(pointer.x, pointer.y);
+    } else {
+      store.addPenVertex(pointer.x, pointer.y);
+    }
+
+    // Update visual
     this.currentVectorNetwork.setNetwork(this.vectorEngine.getNetwork());
     this.canvas.renderAll();
   }
 
-  private handlePenMouseMove(pointer: Point, e: any): void {
+  private handlePenMove(pointer: { x: number; y: number }, isDragging: boolean): void {
     if (!this.isPenDrawing || !this.lastVertexId) return;
 
-    // Drag yapıyor muyuz?
-    const isDragging = e.e && (e.e.buttons === 1);
-
     if (isDragging) {
-      // Kontrol noktası oluştur
-      this.vectorEngine.moveControlPoint(
-        this.lastVertexId,
-        'out',
-        pointer
-      );
+      // Create control point by dragging
+      this.vectorEngine.moveControlPoint(this.lastVertexId, 'out', pointer);
 
-      // Güncelle
       if (this.currentVectorNetwork) {
         this.currentVectorNetwork.setNetwork(this.vectorEngine.getNetwork());
         this.canvas.renderAll();
@@ -460,7 +397,7 @@ export class CanvasEngine {
     }
   }
 
-  private handlePenMouseUp(): void {
+  private handlePenUp(): void {
     this.isPenDrawing = false;
   }
 
@@ -476,7 +413,7 @@ export class CanvasEngine {
       this.currentVectorNetwork.setNetwork(this.vectorEngine.getNetwork());
       this.canvas.renderAll();
 
-      // Reset for new path
+      useCanvasStore.getState().closePenPath();
       this.currentVectorNetwork = null;
       this.lastVertexId = null;
     }
@@ -486,6 +423,11 @@ export class CanvasEngine {
     this.currentVectorNetwork = null;
     this.lastVertexId = null;
     this.isPenDrawing = false;
+
+    const store = useCanvasStore.getState();
+    store.penState.isDrawing = false;
+    store.penState.currentPathId = null;
+    store.penState.lastVertexId = null;
   }
 
   // ==================== VECTOR NETWORK EDITING ====================
@@ -504,7 +446,7 @@ export class CanvasEngine {
     }
   }
 
-  addPointToPath(object: any, segmentId: string, t: number): Vertex | null {
+  addPointToPath(object: any, segmentId: string, t: number): any {
     if (object instanceof FabricVectorNetwork) {
       return object.addPointOnSegment(segmentId, t);
     }
@@ -517,14 +459,264 @@ export class CanvasEngine {
     }
   }
 
+  // ==================== SHAPE CREATION ====================
+
+  private createText(x: number, y: number): void {
+    const config = useCanvasStore.getState().toolConfig;
+    
+    const textObj = new (fabric as any).IText('Text', {
+      left: x,
+      top: y,
+      fill: config.fill,
+      fontFamily: 'Arial',
+      fontSize: 16,
+      selectable: true,
+      data: { shapeType: 'text' }
+    });
+
+    this.canvas.add(textObj);
+    this.canvas.setActiveObject(textObj);
+    textObj.enterEditing();
+
+    const shape = this.objectToShape(textObj);
+    if (shape) {
+      shape.text = 'Text';
+      shape.fontSize = 16;
+      shape.fontFamily = 'Arial';
+      useCanvasStore.getState().addShape(shape);
+      useCanvasStore.getState().selectShape(shape.id);
+    }
+  }
+
+  private createArrow(x1: number, y1: number, x2: number, y2: number): void {
+    const config = useCanvasStore.getState().toolConfig;
+    
+    const arrowObj = advancedShapesEngine.createArrow(x1, y1, x2, y2, {
+      stroke: config.stroke,
+      strokeWidth: config.strokeWidth,
+      opacity: config.opacity,
+      headType: 'arrow'
+    });
+
+    arrowObj.set({ data: { shapeType: 'arrow' } });
+    this.canvas.add(arrowObj);
+
+    const shape = this.objectToShape(arrowObj);
+    if (shape) {
+      useCanvasStore.getState().addShape(shape);
+      useCanvasStore.getState().selectShape(shape.id);
+    }
+  }
+
+  // ==================== OBJECT TO SHAPE ====================
+
+  private objectToShape(obj: any): Shape | null {
+    const id = nanoid();
+    const shapeType = obj.data?.shapeType || 'rectangle';
+    
+    const base: Shape = {
+      id,
+      name: `${shapeType.charAt(0).toUpperCase() + shapeType.slice(1)} ${id.slice(0, 4)}`,
+      type: shapeType as any,
+      x: obj.left || 0,
+      y: obj.top || 0,
+      rotation: obj.angle || 0,
+      fill: obj.fill || '#3B82F6',
+      stroke: obj.stroke || '#F9FEFF',
+      strokeWidth: obj.strokeWidth || 2,
+      opacity: obj.opacity || 1,
+      parentId: null,
+      children: [],
+      locked: false,
+      visible: true
+    };
+
+    if (shapeType === 'rectangle') {
+      base.width = obj.width * (obj.scaleX || 1);
+      base.height = obj.height * (obj.scaleY || 1);
+      base.rx = obj.rx || 0;
+    } else if (shapeType === 'ellipse') {
+      base.width = (obj.rx || 0) * 2;
+      base.height = (obj.ry || 0) * 2;
+    } else if (shapeType === 'line') {
+      base.width = Math.abs((obj.x2 || 0) - (obj.x1 || 0));
+      base.height = Math.abs((obj.y2 || 0) - (obj.y1 || 0));
+    }
+
+    obj.set('id', id);
+    return base;
+  }
+
+  // ==================== EVENT HANDLERS ====================
+
+  private handleSelection(e: any): void {
+    const selected = e.selected || [];
+    const ids = selected.map((obj: any) => obj.get('id')).filter(Boolean);
+    
+    if (ids.length > 0) {
+      useCanvasStore.getState().selectShape(ids[0]);
+    }
+  }
+
+  private handleSelectionClear(): void {
+    useCanvasStore.getState().clearSelection();
+  }
+
+  private handleObjectModified(e: any): void {
+    const obj = e.target;
+    if (!obj) return;
+
+    const id = obj.get('id');
+    if (!id) return;
+
+    const updates: Partial<Shape> = {
+      x: obj.left,
+      y: obj.top,
+      rotation: obj.angle,
+      width: obj.width * (obj.scaleX || 1),
+      height: obj.height * (obj.scaleY || 1),
+      fill: obj.fill,
+      stroke: obj.stroke,
+      strokeWidth: obj.strokeWidth,
+      opacity: obj.opacity
+    };
+
+    useCanvasStore.getState().updateShape(id, updates);
+  }
+
+  private handleObjectMoved(e: any): void {
+    // Handled by object:modified
+  }
+
+  private handleObjectScaled(e: any): void {
+    // Handled by object:modified
+  }
+
+  private handleWheel(e: any): void {
+    e.e.preventDefault();
+    const delta = e.e.deltaY;
+    const zoom = this.canvas.getZoom();
+    
+    let newZoom = delta > 0 ? zoom * 0.9 : zoom * 1.1;
+    newZoom = Math.max(0.1, Math.min(10, newZoom));
+    
+    this.canvas.setZoom(newZoom);
+    useCanvasStore.getState().setZoom(newZoom);
+  }
+
+  private syncSelectionFromStore(selectedIds: string[]): void {
+    if (!this.canvas) return;
+
+    const currentSelection = this.canvas.getActiveObjects().map((o: any) => o.get('id'));
+    
+    if (JSON.stringify(currentSelection) !== JSON.stringify(selectedIds)) {
+      this.canvas.discardActiveObject();
+      
+      if (selectedIds.length > 0) {
+        const objects = selectedIds
+          .map(id => this.canvas.getObjects().find((o: any) => o.get('id') === id))
+          .filter(Boolean);
+        
+        if (objects.length === 1) {
+          this.canvas.setActiveObject(objects[0]);
+        } else if (objects.length > 1) {
+          const selection = new (fabric as any).ActiveSelection(objects, { canvas: this.canvas });
+          this.canvas.setActiveObject(selection);
+        }
+      }
+      
+      this.canvas.renderAll();
+    }
+  }
+
+  // ==================== PUBLIC METHODS ====================
+
+  bringToFront(): void {
+    const active = this.canvas.getActiveObject();
+    if (active) {
+      active.bringToFront();
+    }
+  }
+
+  sendToBack(): void {
+    const active = this.canvas.getActiveObject();
+    if (active) {
+      active.sendToBack();
+      // Keep grid at back
+      const grid = this.canvas.getObjects().find((o: any) => o.data?.isGrid);
+      if (grid) grid.sendToBack();
+    }
+  }
+
+  group(): void {
+    const activeSelection = this.canvas.getActiveObject();
+    if (activeSelection?.type === 'activeSelection') {
+      const group = activeSelection.toGroup();
+      const ids = group.getObjects().map((o: any) => o.get('id'));
+      useCanvasStore.getState().groupShapes(ids);
+      this.canvas.renderAll();
+    }
+  }
+
+  ungroup(): void {
+    const active = this.canvas.getActiveObject();
+    if (active?.type === 'group') {
+      const id = active.get('id');
+      const items = active.toActiveSelection();
+      useCanvasStore.getState().ungroupShape(id);
+      this.canvas.renderAll();
+    }
+  }
+
+  deleteSelected(): void {
+    const activeObjects = this.canvas.getActiveObjects();
+    activeObjects.forEach((obj: any) => {
+      const id = obj.get('id');
+      if (id && !obj.data?.isGrid) {
+        useCanvasStore.getState().deleteShape(id);
+        this.canvas.remove(obj);
+      }
+    });
+    this.canvas.discardActiveObject();
+    this.canvas.renderAll();
+  }
+
+  clear(): void {
+    this.canvas.clear();
+    this.setupGrid();
+    useCanvasStore.getState().clear();
+  }
+
+  exportSVG(): string {
+    return this.canvas.toSVG();
+  }
+
+  exportPNG(): string {
+    return this.canvas.toDataURL({ format: 'png', quality: 1 });
+  }
+
+  zoomIn(): void {
+    const current = this.canvas.getZoom();
+    this.canvas.setZoom(current * 1.2);
+    useCanvasStore.getState().setZoom(current * 1.2);
+  }
+
+  zoomOut(): void {
+    const current = this.canvas.getZoom();
+    this.canvas.setZoom(current / 1.2);
+    useCanvasStore.getState().setZoom(current / 1.2);
+  }
+
+  resetZoom(): void {
+    this.canvas.setZoom(1);
+    this.canvas.viewportTransform = [1, 0, 0, 1, 0, 0];
+    useCanvasStore.getState().setZoom(1);
+  }
+
   destroy(): void {
-    if (this.canvas) {
-      this.canvas.dispose();
-      this.canvas = null;
-    }
-    if (this.container) {
-      this.container.innerHTML = '';
-    }
+    if (this.unsubscribe) this.unsubscribe();
+    if (this.canvas) this.canvas.dispose();
+    if (this.container) this.container.innerHTML = '';
   }
 }
 

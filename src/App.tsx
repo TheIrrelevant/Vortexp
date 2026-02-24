@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { fullCanvasEngine } from './canvas/FullCanvasEngine';
-import { useCanvasStore } from './store/fullCanvasStore';
+import { canvasEngine } from './canvas/CanvasEngine';
+import { useCanvasStore } from './store/canvasStore';
 import { Toolbar } from './components/Toolbar';
 import { LayersPanel } from './components/LayersPanel';
 import { PropertiesPanel } from './components/PropertiesPanel';
@@ -18,12 +18,12 @@ function App() {
 
   useEffect(() => {
     if (canvasRef.current && !canvasInitialized) {
-      fullCanvasEngine.initialize('canvas-container');
+      canvasEngine.initialize('canvas-container');
       setCanvasInitialized(true);
     }
 
     return () => {
-      fullCanvasEngine.destroy();
+      canvasEngine.destroy();
     };
   }, []);
 
@@ -40,17 +40,23 @@ function App() {
         case 'a': useCanvasStore.getState().setTool('arrow'); break;
         case 'p': useCanvasStore.getState().setTool('pen'); break;
         case 't': useCanvasStore.getState().setTool('text'); break;
+        case 'enter':
+          canvasEngine.closePenPath();
+          break;
+        case 'escape':
+          canvasEngine.finishPenPath();
+          break;
         case 'delete':
         case 'backspace':
-          fullCanvasEngine.deleteSelected();
+          canvasEngine.deleteSelected();
           break;
         case 'g':
           if (e.ctrlKey || e.metaKey) {
             e.preventDefault();
             if (e.shiftKey) {
-              fullCanvasEngine.ungroup();
+              canvasEngine.ungroup();
             } else {
-              fullCanvasEngine.group();
+              canvasEngine.group();
             }
           }
           break;
@@ -58,19 +64,19 @@ function App() {
         case '+':
           if (e.ctrlKey || e.metaKey) {
             e.preventDefault();
-            fullCanvasEngine.zoomIn();
+            canvasEngine.zoomIn();
           }
           break;
         case '-':
           if (e.ctrlKey || e.metaKey) {
             e.preventDefault();
-            fullCanvasEngine.zoomOut();
+            canvasEngine.zoomOut();
           }
           break;
         case '0':
           if (e.ctrlKey || e.metaKey) {
             e.preventDefault();
-            fullCanvasEngine.resetZoom();
+            canvasEngine.resetZoom();
           }
           break;
       }
@@ -92,9 +98,9 @@ function App() {
           <span className="zoom-indicator">{Math.round(zoom * 100)}%</span>
         </div>
         <div className="header-actions">
-          <button onClick={() => fullCanvasEngine.zoomIn()} className="btn-icon" title="Zoom In">+</button>
-          <button onClick={() => fullCanvasEngine.zoomOut()} className="btn-icon" title="Zoom Out">−</button>
-          <button onClick={() => fullCanvasEngine.resetZoom()} className="btn-icon" title="Reset Zoom">⟲</button>
+          <button onClick={() => canvasEngine.zoomIn()} className="btn-icon" title="Zoom In">+</button>
+          <button onClick={() => canvasEngine.zoomOut()} className="btn-icon" title="Zoom Out">−</button>
+          <button onClick={() => canvasEngine.resetZoom()} className="btn-icon" title="Reset Zoom">⟲</button>
         </div>
       </header>
 

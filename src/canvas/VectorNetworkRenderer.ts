@@ -8,9 +8,9 @@ import type {
 
 /**
  * Figma Vector Network Renderer - Canvas 2D Rendering
- * 
- * Fabric.js yerine native Canvas 2D API kullanıyoruz
- * çünkü Vector Networks için daha fazla kontrol gerekiyor.
+ *
+ * Uses native Canvas 2D API instead of Fabric.js
+ * because Vector Networks need more rendering control.
  */
 export class VectorNetworkRenderer {
   private ctx: CanvasRenderingContext2D;
@@ -20,12 +20,12 @@ export class VectorNetworkRenderer {
   }
 
   /**
-   * Vector Network'ü canvas'a çiz
+   * Draw Vector Network on canvas
    */
   render(network: VectorNetwork): void {
     this.ctx.save();
 
-    // Transform uygula
+    // Apply transform
     this.applyTransform(network);
 
     // Fill regions
@@ -38,14 +38,14 @@ export class VectorNetworkRenderer {
   }
 
   /**
-   * Vertex'leri ve kontrol noktalarını göster (edit mode)
+   * Show vertices and control points (edit mode)
    */
   renderEditMode(
     network: VectorNetwork,
     selectedVertexIds: string[],
     hoveredVertexId: string | null
   ): void {
-    // Vertex'leri çiz
+    // Draw vertices
     network.vertices.forEach(vertex => {
       const isSelected = selectedVertexIds.includes(vertex.id);
       const isHovered = hoveredVertexId === vertex.id;
@@ -53,7 +53,7 @@ export class VectorNetworkRenderer {
       this.renderVertex(vertex, isSelected, isHovered);
     });
 
-    // Kontrol noktalarını çiz
+    // Draw control points
     network.vertices.forEach(vertex => {
       this.renderControlPoints(vertex, selectedVertexIds.includes(vertex.id));
     });
@@ -67,7 +67,7 @@ export class VectorNetworkRenderer {
     this.ctx.fillStyle = network.fill;
     this.ctx.globalAlpha = network.opacity;
 
-    // Her region için path oluştur
+    // Create path for each region
     network.regions.forEach(region => {
       region.loops.forEach(loop => {
         this.renderLoop(network, loop);
@@ -86,7 +86,7 @@ export class VectorNetworkRenderer {
     this.ctx.lineJoin = 'round';
     this.ctx.globalAlpha = network.opacity;
 
-    // Her segment için çiz
+    // Draw each segment
     network.segments.forEach(segment => {
       this.renderSegment(network, segment);
     });
@@ -152,7 +152,7 @@ export class VectorNetworkRenderer {
         endVertex.x, endVertex.y
       );
     } else if (cp1 || cp2) {
-      // Quadratic Bezier (tek kontrol noktası)
+      // Quadratic Bezier (single control point)
       const cp = cp1 || cp2!;
       this.ctx.quadraticCurveTo(cp.x, cp.y, endVertex.x, endVertex.y);
     } else {
@@ -189,9 +189,9 @@ export class VectorNetworkRenderer {
     this.ctx.lineWidth = 2;
     this.ctx.stroke();
 
-    // Kontrol noktası varsa farklı göster
+    // Show differently if has control points
     if (vertex.controlIn || vertex.controlOut) {
-      // İç içe daire
+      // Inner circle
       this.ctx.beginPath();
       this.ctx.arc(vertex.x, vertex.y, size - 3, 0, Math.PI * 2);
       this.ctx.fillStyle = '#1F2937';
@@ -202,7 +202,7 @@ export class VectorNetworkRenderer {
   private renderControlPoints(vertex: Vertex, isSelected: boolean): void {
     if (!vertex.controlIn && !vertex.controlOut) return;
 
-    // Kontrol noktası çizgileri
+    // Control point lines
     this.ctx.strokeStyle = 'rgba(59, 130, 246, 0.5)';
     this.ctx.lineWidth = 1;
 
@@ -250,7 +250,7 @@ export class VectorNetworkRenderer {
   // ==================== HIT TESTING ====================
 
   /**
-   * Belirli bir noktadaki vertex'i bul
+   * Find vertex at a given point
    */
   hitTestVertex(
     network: VectorNetwork,
@@ -272,7 +272,7 @@ export class VectorNetworkRenderer {
   }
 
   /**
-   * Belirli bir noktadaki kontrol noktasını bul
+   * Find control point at a given point
    */
   hitTestControlPoint(
     network: VectorNetwork,
@@ -306,7 +306,7 @@ export class VectorNetworkRenderer {
   }
 
   /**
-   * Belirli bir noktadaki segment'i bul
+   * Find segment at a given point
    */
   hitTestSegment(
     network: VectorNetwork,
@@ -328,8 +328,8 @@ export class VectorNetworkRenderer {
     segment: Segment,
     point: { x: number; y: number }
   ): number | null {
-    // Basit line segment için closest point
-    // Bezier için daha karmaşık algoritma gerek
+    // Closest point for simple line segment
+    // More complex algorithm needed for Bezier
 
     const startVertex = network.vertices.find(v => v.id === segment.startVertexId);
     const endVertex = network.vertices.find(v => v.id === segment.endVertexId);

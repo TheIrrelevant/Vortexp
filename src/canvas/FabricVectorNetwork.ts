@@ -6,9 +6,9 @@ import { VectorNetworkEngine } from '../vector/VectorNetworkEngine';
 
 /**
  * Fabric.js Vector Network Object
- * 
- * Fabric.js'in native path objesi yerine Vector Network kullanıyoruz.
- * Bu sayede Figma benzeri çift yönlü path editing yapabiliriz.
+ *
+ * Uses Vector Network instead of Fabric.js native path object.
+ * This enables Figma-like bidirectional path editing.
  */
 export class FabricVectorNetwork extends (fabric.Group as any) {
   private network: VectorNetwork;
@@ -28,13 +28,13 @@ export class FabricVectorNetwork extends (fabric.Group as any) {
   }
 
   /**
-   * Vector Network'ü Fabric.js path'e dönüştür ve render et
+   * Convert Vector Network to Fabric.js path and render
    */
   private render(): void {
-    // Önce eski objeleri temizle
+    // First clean up old objects
     this.removeAll();
 
-    // Path'i oluştur
+    // Create the path
     const pathData = this.engine.toSVGPath();
     
     if (pathData) {
@@ -50,20 +50,20 @@ export class FabricVectorNetwork extends (fabric.Group as any) {
       this.addWithUpdate(this.pathObject);
     }
 
-    // Edit mode'da kontrol noktalarını göster
+    // Show control points in edit mode
     if (this.isEditing) {
       this.renderControlPoints();
     }
   }
 
   /**
-   * Kontrol noktalarını ve vertex'leri render et
+   * Render control points and vertices
    */
   private renderControlPoints(): void {
     const objects: any[] = [];
 
     this.network.vertices.forEach(vertex => {
-      // Vertex noktası
+      // Vertex point
       const vertexCircle = new (fabric as any).Circle({
         left: vertex.x - 6,
         top: vertex.y - 6,
@@ -77,7 +77,7 @@ export class FabricVectorNetwork extends (fabric.Group as any) {
       });
       objects.push(vertexCircle);
 
-      // Kontrol noktası çizgileri ve handle'ları
+      // Control point lines and handles
       if (vertex.controlIn) {
         const lineIn = new (fabric as any).Line(
           [vertex.x, vertex.y, vertex.controlIn.x, vertex.controlIn.y],
@@ -140,7 +140,7 @@ export class FabricVectorNetwork extends (fabric.Group as any) {
   }
 
   /**
-   * Edit mode'u aç/kapat
+   * Toggle edit mode
    */
   setEditingMode(editing: boolean): void {
     this.isEditing = editing;
@@ -148,7 +148,7 @@ export class FabricVectorNetwork extends (fabric.Group as any) {
   }
 
   /**
-   * Vertex ekle
+   * Add vertex
    */
   addVertex(x: number, y: number, type: 'STRAIGHT' | 'MIRRORED' = 'MIRRORED'): Vertex {
     const vertex = this.engine.addVertex(x, y, type);
@@ -158,7 +158,7 @@ export class FabricVectorNetwork extends (fabric.Group as any) {
   }
 
   /**
-   * Segment ekle
+   * Add segment
    */
   addSegment(startVertexId: string, endVertexId: string): Segment | null {
     const segment = this.engine.addSegment(startVertexId, endVertexId);
@@ -170,7 +170,7 @@ export class FabricVectorNetwork extends (fabric.Group as any) {
   }
 
   /**
-   * Vertex güncelle
+   * Update vertex
    */
   updateVertex(vertexId: string, updates: Partial<Vertex>): void {
     this.engine.updateVertex(vertexId, updates);
@@ -179,7 +179,7 @@ export class FabricVectorNetwork extends (fabric.Group as any) {
   }
 
   /**
-   * Vertex sil
+   * Delete vertex
    */
   deleteVertex(vertexId: string): void {
     this.engine.deleteVertex(vertexId);
@@ -188,7 +188,7 @@ export class FabricVectorNetwork extends (fabric.Group as any) {
   }
 
   /**
-   * Kontrol noktası taşı
+   * Move control point
    */
   moveControlPoint(vertexId: string, type: 'in' | 'out', position: Point): void {
     this.engine.moveControlPoint(vertexId, type, position);
@@ -197,7 +197,7 @@ export class FabricVectorNetwork extends (fabric.Group as any) {
   }
 
   /**
-   * Path'i kapat
+   * Close path
    */
   closePath(): void {
     this.engine.closePath();
@@ -207,7 +207,7 @@ export class FabricVectorNetwork extends (fabric.Group as any) {
   }
 
   /**
-   * Segment üzerinde nokta ekle
+   * Add point on segment
    */
   addPointOnSegment(segmentId: string, t: number): Vertex | null {
     const vertex = this.engine.addPointOnSegment(segmentId, t);
@@ -219,14 +219,14 @@ export class FabricVectorNetwork extends (fabric.Group as any) {
   }
 
   /**
-   * Network'ü al
+   * Get network
    */
   getNetwork(): VectorNetwork {
     return this.network;
   }
 
   /**
-   * Network'ü güncelle
+   * Set network
    */
   setNetwork(network: VectorNetwork): void {
     this.network = network;
@@ -235,7 +235,7 @@ export class FabricVectorNetwork extends (fabric.Group as any) {
   }
 
   /**
-   * SVG path data al
+   * Get SVG path data
    */
   getPathData(): string {
     return this.engine.toSVGPath();
@@ -246,5 +246,5 @@ export class FabricVectorNetwork extends (fabric.Group as any) {
   }
 }
 
-// Fabric.js'e özel obje olarak kaydet
+// Register as custom Fabric.js object
 (fabric as any).FabricVectorNetwork = FabricVectorNetwork;

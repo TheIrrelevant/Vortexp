@@ -1,7 +1,7 @@
 // src/components/LayersPanel.tsx
 
-import { useCanvasStore, type Shape } from '../store/fullCanvasStore';
-import { fullCanvasEngine } from '../canvas/FullCanvasEngine';
+import { useCanvasStore, type Shape } from '../store/canvasStore';
+import { canvasEngine } from '../canvas/CanvasEngine';
 
 const typeIcons: Record<string, string> = {
   rectangle: '▢',
@@ -37,26 +37,26 @@ export function LayersPanel() {
 
   const handleBringToFront = () => {
     if (selectedIds.length > 0) {
-      fullCanvasEngine.bringToFront();
+      canvasEngine.bringToFront();
     }
   };
 
   const handleSendToBack = () => {
     if (selectedIds.length > 0) {
-      fullCanvasEngine.sendToBack();
+      canvasEngine.sendToBack();
     }
   };
 
   const handleGroup = () => {
-    fullCanvasEngine.group();
+    canvasEngine.group();
   };
 
   const handleUngroup = () => {
-    fullCanvasEngine.ungroup();
+    canvasEngine.ungroup();
   };
 
   const handleDelete = () => {
-    fullCanvasEngine.deleteSelected();
+    canvasEngine.deleteSelected();
   };
 
   return (

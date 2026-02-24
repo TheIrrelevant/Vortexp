@@ -1,7 +1,7 @@
 // src/components/PropertiesPanel.tsx
 
-import { useCanvasStore } from '../store/fullCanvasStore';
-import { fullCanvasEngine } from '../canvas/FullCanvasEngine';
+import { useCanvasStore } from '../store/canvasStore';
+import { canvasEngine } from '../canvas/CanvasEngine';
 
 export function PropertiesPanel() {
   const { shapes, selectedIds, toolConfig, updateToolConfig, updateShape } = useCanvasStore();
@@ -17,16 +17,16 @@ export function PropertiesPanel() {
   };
 
   const handleClear = () => {
-    fullCanvasEngine.clear();
+    canvasEngine.clear();
   };
 
   const handleExportSVG = () => {
-    const svg = fullCanvasEngine.exportSVG();
+    const svg = canvasEngine.exportSVG();
     downloadFile(svg, 'vortexp-drawing.svg', 'image/svg+xml');
   };
 
   const handleExportPNG = () => {
-    const png = fullCanvasEngine.exportPNG();
+    const png = canvasEngine.exportPNG();
     downloadFile(png, 'vortexp-drawing.png', 'image/png');
   };
 

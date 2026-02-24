@@ -1,7 +1,7 @@
 // src/components/BooleanPanel.tsx
 
 import { useState } from 'react';
-import { useCanvasStore } from '../store/fullCanvasStore';
+import { useCanvasStore } from '../store/canvasStore';
 import { booleanOperationsEngine } from '../boolean/BooleanOperationsEngine';
 
 type BooleanOp = 'union' | 'subtract' | 'intersect' | 'exclude';

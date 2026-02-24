@@ -1,8 +1,8 @@
 // src/components/VariablesPanel.tsx
 
 import { useState } from 'react';
-import { useCanvasStore } from '../store/fullCanvasStore';
-import type { VariableCollection } from '../store/fullCanvasStore';
+import { useCanvasStore } from '../store/canvasStore';
+import type { VariableCollection } from '../store/canvasStore';
 
 export function VariablesPanel() {
   const { 

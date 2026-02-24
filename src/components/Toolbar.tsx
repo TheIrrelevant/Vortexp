@@ -1,6 +1,6 @@
 // src/components/Toolbar.tsx
 
-import { useCanvasStore, type ToolType } from '../store/fullCanvasStore';
+import { useCanvasStore, type ToolType } from '../store/canvasStore';
 
 const tools: { id: ToolType; label: string; icon: string; shortcut: string }[] = [
   { id: 'select', label: 'Select', icon: '↖', shortcut: 'V' },

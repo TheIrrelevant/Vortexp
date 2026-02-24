@@ -1,6 +1,6 @@
 // src/components/AutoLayoutPanel.tsx
 
-import { useCanvasStore, type AutoLayoutConfig } from '../store/fullCanvasStore';
+import { useCanvasStore, type AutoLayoutConfig } from '../store/canvasStore';
 
 export function AutoLayoutPanel() {
   const { shapes, selectedIds, setAutoLayout, updateShape } = useCanvasStore();

@@ -14,11 +14,11 @@ import type {
 
 /**
  * Figma Vector Networks Engine - 1:1 Implementation
- * 
- * Önemli farklar:
- * 1. SVG path tek yönlüdür, Vector Network çift yönlüdür
- * 2. Vertex'ler birden fazla segment'e bağlanabilir
- * 3. Kontrol noktaları vertex'ten bağımsız olabilir
+ *
+ * Key differences from SVG paths:
+ * 1. SVG paths are unidirectional, Vector Networks are bidirectional
+ * 2. Vertices can connect to multiple segments
+ * 3. Control points can be independent from vertices
  */
 export class VectorNetworkEngine {
   private network: VectorNetwork;
@@ -27,7 +27,7 @@ export class VectorNetworkEngine {
     this.network = this.createEmptyNetwork();
   }
 
-  // ==================== NETWORK YÖNETİMİ ====================
+  // ==================== NETWORK MANAGEMENT ====================
 
   createEmptyNetwork(): VectorNetwork {
     return {
@@ -55,7 +55,7 @@ export class VectorNetworkEngine {
     return this.network;
   }
 
-  // ==================== VERTEX İŞLEMLERİ ====================
+  // ==================== VERTEX OPERATIONS ====================
 
   addVertex(
     x: number,
@@ -84,7 +84,7 @@ export class VectorNetworkEngine {
 
     Object.assign(vertex, updates);
 
-    // Kontrol noktası tipi değiştiğinde control point'leri güncelle
+    // Update control points when control point type changes
     if (updates.type) {
       this.updateControlPointsByType(vertex);
     }
@@ -96,15 +96,15 @@ export class VectorNetworkEngine {
     const vertex = this.findVertex(id);
     if (!vertex) return;
 
-    // Bağlı tüm segment'leri sil
+    // Delete all connected segments
     vertex.connectedSegments.forEach(segmentId => {
       this.deleteSegment(segmentId);
     });
 
-    // Vertex'i sil
+    // Delete the vertex
     this.network.vertices = this.network.vertices.filter(v => v.id !== id);
 
-    // Region'ları güncelle
+    // Update regions
     this.updateRegions();
   }
 
@@ -112,7 +112,7 @@ export class VectorNetworkEngine {
     return this.network.vertices.find(v => v.id === id);
   }
 
-  // ==================== SEGMENT İŞLEMLERİ ====================
+  // ==================== SEGMENT OPERATIONS ====================
 
   addSegment(
     startVertexId: string,
@@ -135,7 +135,7 @@ export class VectorNetworkEngine {
 
     this.network.segments.push(segment);
 
-    // Vertex'lere segment'i bağla
+    // Connect segment to vertices
     startVertex.connectedSegments.push(segment.id);
     endVertex.connectedSegments.push(segment.id);
 
@@ -154,7 +154,7 @@ export class VectorNetworkEngine {
     const segment = this.findSegment(id);
     if (!segment) return;
 
-    // Vertex'lerden bağlantıyı kaldır
+    // Remove connection from vertices
     const startVertex = this.findVertex(segment.startVertexId);
     const endVertex = this.findVertex(segment.endVertexId);
 
@@ -165,7 +165,7 @@ export class VectorNetworkEngine {
       endVertex.connectedSegments = endVertex.connectedSegments.filter(s => s !== id);
     }
 
-    // Segment'i sil
+    // Delete the segment
     this.network.segments = this.network.segments.filter(s => s.id !== id);
   }
 
@@ -179,15 +179,15 @@ export class VectorNetworkEngine {
     );
   }
 
-  // ==================== CONTROL POINT İŞLEMLERİ ====================
+  // ==================== CONTROL POINT OPERATIONS ====================
 
   /**
-   * Kontrol noktası tipine göre control point'leri güncelle
-   * 
-   * STRAIGHT: Kontrol noktası yok (düz çizgi)
-   * MIRRORED: Gelen ve giden aynı açı ve mesafede (simetrik)
-   * ASYMMETRIC: Gelen ve giden aynı açı, farklı mesafe
-   * DISCONNECTED: Gelen ve giden tamamen bağımsız
+   * Update control points based on control point type
+   *
+   * STRAIGHT: No control points (straight line)
+   * MIRRORED: In and out same angle and distance (symmetric)
+   * ASYMMETRIC: In and out same angle, different distance
+   * DISCONNECTED: In and out completely independent
    */
   updateControlPointsByType(vertex: Vertex): void {
     switch (vertex.type) {
@@ -198,7 +198,7 @@ export class VectorNetworkEngine {
 
       case 'MIRRORED':
         if (vertex.controlIn) {
-          // Giden kontrol noktasını gelenin ayna görüntüsü yap
+          // Mirror the outgoing control point from the incoming one
           const dx = vertex.controlIn.x - vertex.x;
           const dy = vertex.controlIn.y - vertex.y;
           vertex.controlOut = {
@@ -209,7 +209,7 @@ export class VectorNetworkEngine {
         break;
 
       case 'ASYMMETRIC':
-        // Aynı açıyı koru ama mesafeleri bağımsız bırak
+        // Keep the same angle but allow independent distances
         if (vertex.controlIn && vertex.controlOut) {
           const angleIn = Math.atan2(
             vertex.controlIn.y - vertex.y,
@@ -227,7 +227,7 @@ export class VectorNetworkEngine {
         break;
 
       case 'DISCONNECTED':
-        // Hiçbir şey yapma - tamamen bağımsız
+        // Do nothing - completely independent
         break;
     }
   }
@@ -246,7 +246,7 @@ export class VectorNetworkEngine {
       vertex.controlOut = position;
     }
 
-    // Tip MIRRORED veya ASYMMETRIC ise diğerini de güncelle
+    // If type is MIRRORED or ASYMMETRIC, update the other control point
     if (vertex.type === 'MIRRORED') {
       const dx = position.x - vertex.x;
       const dy = position.y - vertex.y;
@@ -264,10 +264,10 @@ export class VectorNetworkEngine {
     }
   }
 
-  // ==================== PATH İŞLEMLERİ ====================
+  // ==================== PATH OPERATIONS ====================
 
   /**
-   * Segment üzerinde nokta ekle (t = 0..1)
+   * Add a point on a segment (t = 0..1)
    */
   addPointOnSegment(segmentId: string, t: number): Vertex | null {
     const segment = this.findSegment(segmentId);
@@ -277,21 +277,21 @@ export class VectorNetworkEngine {
     const endVertex = this.findVertex(segment.endVertexId);
     if (!startVertex || !endVertex) return null;
 
-    // Bezier eğrisi üzerinde noktayı hesapla
+    // Calculate the point on the Bezier curve
     const curve = this.getBezierCurve(segment);
     const newPoint = this.calculateBezierPoint(curve, t);
 
-    // Yeni vertex oluştur
+    // Create new vertex
     const newVertex = this.addVertex(
       newPoint.x,
       newPoint.y,
       'MIRRORED'
     );
 
-    // Orijinal segment'i sil
+    // Delete the original segment
     this.deleteSegment(segmentId);
 
-    // İki yeni segment oluştur
+    // Create two new segments
     this.addSegment(startVertex.id, newVertex.id);
     this.addSegment(newVertex.id, endVertex.id);
 
@@ -299,7 +299,7 @@ export class VectorNetworkEngine {
   }
 
   /**
-   * Path'i kapat (son vertex'ten ilk vertex'e segment oluştur)
+   * Close the path (create segment from last vertex to first vertex)
    */
   closePath(): Segment | null {
     if (this.network.vertices.length < 2) return null;
@@ -307,7 +307,7 @@ export class VectorNetworkEngine {
     const firstVertex = this.network.vertices[0];
     const lastVertex = this.network.vertices[this.network.vertices.length - 1];
 
-    // Zaten kapalı mı kontrol et
+    // Check if already closed
     const existingSegment = this.network.segments.find(
       s => (s.startVertexId === lastVertex.id && s.endVertexId === firstVertex.id) ||
            (s.startVertexId === firstVertex.id && s.endVertexId === lastVertex.id)
@@ -318,7 +318,7 @@ export class VectorNetworkEngine {
     return this.addSegment(lastVertex.id, firstVertex.id);
   }
 
-  // ==================== BEZIER HESAPLAMALARI ====================
+  // ==================== BEZIER CALCULATIONS ====================
 
   getBezierCurve(segment: Segment): BezierCurve {
     const startVertex = this.findVertex(segment.startVertexId)!;
@@ -333,7 +333,7 @@ export class VectorNetworkEngine {
   }
 
   /**
-   * Cubic Bezier eğrisi üzerinde nokta hesapla
+   * Calculate a point on a cubic Bezier curve
    * B(t) = (1-t)³P₀ + 3(1-t)²tP₁ + 3(1-t)t²P₂ + t³P₃
    */
   calculateBezierPoint(curve: BezierCurve, t: number): Point {
@@ -350,7 +350,7 @@ export class VectorNetworkEngine {
   }
 
   /**
-   * Bezier eğrisinin türevi (teğet)
+   * Bezier curve derivative (tangent)
    */
   calculateBezierTangent(curve: BezierCurve, t: number): Point {
     const u = 1 - t;
@@ -366,7 +366,7 @@ export class VectorNetworkEngine {
   // ==================== SVG EXPORT ====================
 
   /**
-   * Vector Network'ü SVG path data'ya dönüştür
+   * Convert Vector Network to SVG path data
    */
   toSVGPath(): string {
     const commands = this.generatePathCommands();
@@ -376,7 +376,7 @@ export class VectorNetworkEngine {
   private generatePathCommands(): PathCommand[] {
     const commands: PathCommand[] = [];
 
-    // Her region için path oluştur
+    // Create path for each region
     this.network.regions.forEach(region => {
       region.loops.forEach(loop => {
         if (loop.length === 0) return;
@@ -456,10 +456,10 @@ export class VectorNetworkEngine {
     }
   }
 
-  // ==================== REGION YÖNETİMİ ====================
+  // ==================== REGION MANAGEMENT ====================
 
   updateRegions(): void {
-    // Basit implementation: Kapalı path'leri bul
+    // Simple implementation: find closed paths
     const loops = this.findLoops();
     
     this.network.regions = [{
@@ -473,7 +473,7 @@ export class VectorNetworkEngine {
     const loops: string[][] = [];
     const visited = new Set<string>();
 
-    // DFS ile kapalı path'leri bul
+    // Find closed paths using DFS
     this.network.vertices.forEach(vertex => {
       if (visited.has(vertex.id)) return;
 
@@ -496,7 +496,7 @@ export class VectorNetworkEngine {
       visited.add(current);
       path.push(current);
 
-      // Sonraki vertex'i bul
+      // Find the next vertex
       const segments = this.getSegmentsForVertex(current);
       let foundNext = false;
 
@@ -504,7 +504,7 @@ export class VectorNetworkEngine {
         const nextId = segment.startVertexId === current ? segment.endVertexId : segment.startVertexId;
 
         if (nextId === startId && path.length > 2) {
-          // Loop tamamlandı
+          // Loop completed
           return path;
         }
 
@@ -532,7 +532,7 @@ export class VectorNetworkEngine {
     this.network.scaleX *= sx;
     this.network.scaleY *= sy;
 
-    // Tüm vertex'leri scale et
+    // Scale all vertices
     this.network.vertices.forEach(vertex => {
       vertex.x *= sx;
       vertex.y *= sy;
@@ -552,7 +552,7 @@ export class VectorNetworkEngine {
   rotate(angle: number): void {
     this.network.rotation += angle;
 
-    // Tüm vertex'leri rotate et
+    // Rotate all vertices
     const rad = angle * Math.PI / 180;
     const cos = Math.cos(rad);
     const sin = Math.sin(rad);
